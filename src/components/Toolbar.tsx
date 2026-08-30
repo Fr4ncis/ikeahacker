@@ -3,7 +3,16 @@ import { getCatalog, getItem } from '../lib/catalog'
 import { exportCsv, exportJson, exportPng } from '../lib/export'
 import type { Scene } from '../lib/render'
 import { sanitizeLayout, shareUrl } from '../lib/layout'
-import { deleteSave, readSaves, usePlanner, writeSave, type SavedLayouts } from '../state/store'
+import { area } from '../lib/polygon'
+import { floorOutline } from '../lib/iso'
+import {
+  deleteSave,
+  readSaves,
+  SHAPE_PRESETS,
+  usePlanner,
+  writeSave,
+  type SavedLayouts,
+} from '../state/store'
 import type { LoadNotice } from '../App'
 
 const PRESETS: { label: string; width: number; depth: number }[] = [
@@ -42,6 +51,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
   const camera = usePlanner((s) => s.camera)
   const showGrid = usePlanner((s) => s.showGrid)
   const showLabels = usePlanner((s) => s.showLabels)
+  const editingShape = usePlanner((s) => s.editingShape)
   const [saves, setSaves] = useState<SavedLayouts>(() => readSaves())
   const [panel, setPanel] = useState<'room' | 'saves' | null>(null)
   const [saveName, setSaveName] = useState('')
@@ -56,8 +66,11 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
       selectedUid: null,
       hoverUid: null,
       collisions: new Set<string>(),
+      outside: new Set<string>(),
       showGrid: false,
       showLabels,
+      editing: false,
+      activeCorner: null,
     }),
     [room, items, camera, showLabels],
   )
@@ -124,6 +137,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
       <div className="tool-group">
         <button className={panel === 'room' ? 'on' : ''} onClick={() => setPanel(panel === 'room' ? null : 'room')}>
           Room {room.width}×{room.depth} cm
+          {room.outline ? ` · ${(area(floorOutline(room)) / 10000).toFixed(1)} m²` : ''}
         </button>
         <button onClick={() => store.rotateCamera(-1)} title="Turn the room left ([)">
           ↺
@@ -183,6 +197,26 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
               </button>
             ))}
           </div>
+          <div className="popover-shape">
+            <button
+              className={editingShape ? 'on' : ''}
+              onClick={() => store.setEditingShape(!editingShape)}
+            >
+              {editingShape ? 'Done editing shape' : 'Edit floor shape'}
+            </button>
+            {SHAPE_PRESETS.map((preset) => (
+              <button key={preset.label} onClick={() => store.setOutline(preset.make(room.width, room.depth))}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          {editingShape && (
+            <p className="shape-help">
+              Drag a corner to move it, click an edge to add one, <kbd>Alt</kbd>-click a corner to remove it.
+              Corners snap to 10 cm; hold <kbd>Alt</kbd> while dragging for 1 cm.
+            </p>
+          )}
+
           <div className="popover-colors">
             <span>Walls</span>
             {WALL_COLORS.map((c) => (

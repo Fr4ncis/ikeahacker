@@ -44,8 +44,14 @@ fits the room you have set up. Right-click any product to open it on ikea.com,
 drop it straight into the room, or copy its article number.
 
 **Room.** Set the width, depth and height in centimetres, or start from a
-preset. Recolour the walls and floor. The two walls facing the camera are drawn
-so pieces read against them.
+preset. Recolour the walls and floor.
+
+Rooms do not have to be rectangles. Start from an L-shape or draw your own
+floor plan: drag a corner to move it, click an edge to add one, <kbd>Alt</kbd>-click
+a corner to remove it. Corners snap to 10 cm. The floor area is reported in m²,
+the grid is clipped to the outline, and anything left sitting outside the room
+is flagged — you can still park a piece over a notch while you work out where
+it goes.
 
 **Placing things.** Click a product to drop it in the first free spot. Drag it
 around the floor on a 5 cm grid (hold <kbd>Alt</kbd> for 1 cm). Rotate in 90°
@@ -136,6 +142,7 @@ scraper/
   finish.ts      finish words to hex colours
 src/lib/
   iso.ts         isometric projection, camera rotation, footprints, draw order
+  polygon.ts     floor-plan geometry: inside/outside, edges, shapes
   layout.ts      validating a layout, and packing one into a share link
   render.ts      canvas painting, and the colour-coded pick pass for hit testing
   geometry.ts    a product's boxes: slab and legs, seat and back, or one box
@@ -143,7 +150,7 @@ src/lib/
   export.ts      PNG, CSV and JSON output
 src/components/  toolbar, catalogue sidebar, canvas, inspector, menus
 src/state/       the room, what is in it, and browser persistence
-test/            geometry, serialisation and catalogue checks
+test/            geometry, floor plans, serialisation and catalogue checks
 public/          the scraped catalogue, fetched at startup
 ```
 
@@ -158,6 +165,18 @@ be nearer than a wardrobe at one end and further at the other, and no single
 key expresses that. Instead each pair that a separating axis can order becomes
 an edge, and the graph is sorted back to front; interpenetrating pieces, which
 have no correct answer, fall back to distance.
+
+### Walls of an irregular room
+
+A floor plan is a polygon wound clockwise. For an edge `a → b` the outward
+normal is `(dy, -dx)`, and since the camera looks down the `+x/+y` diagonal, a
+wall is a far wall exactly when that normal runs against the diagonal. Near
+walls are dropped, or they would stand between you and the room.
+
+Camera rotation is a pure rotation, so winding is preserved and the same test
+holds at every angle. It also stays correct around the inside corner of an L,
+which a centroid-based guess does not — that was the first version, and it left
+the notch of an L-shaped room with no walls at all.
 
 ### Share links
 

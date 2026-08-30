@@ -8,6 +8,7 @@
  * View space is the world after the camera's quarter-turn rotation. Screen
  * space is the view projected isometrically, before pan and zoom.
  */
+import { rectangle, type Point as Vertex } from './polygon'
 import type { CameraRotation, PlacedItem, Room } from './types'
 
 export type { CameraRotation }
@@ -37,6 +38,19 @@ export function unproject(sx: number, sy: number, z: number, scale: number): { v
   const diff = sx / (ISO_X * scale) // vx - vy
   const sum = (sy + z * scale) / (ISO_Y * scale) // vx + vy
   return { vx: (sum + diff) / 2, vy: (sum - diff) / 2 }
+}
+
+/** The room's floor outline, synthesising one for a plain rectangle. */
+export function floorOutline(room: Room): Vertex[] {
+  return room.outline ?? rectangle(room.width, room.depth)
+}
+
+/** The floor outline in view space, for drawing and for hit-testing. */
+export function outlineInView(room: Room, rot: CameraRotation): Vertex[] {
+  return floorOutline(room).map(([x, y]) => {
+    const v = toView(x, y, room, rot)
+    return [v.vx, v.vy] as Vertex
+  })
 }
 
 /** The room's footprint as the camera sees it; odd rotations swap width and depth. */

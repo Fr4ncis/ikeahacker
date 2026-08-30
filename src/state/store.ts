@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getItem } from '../lib/catalog'
-import { footprint, overlaps } from '../lib/iso'
+import { floorOutline, footprint, overlaps } from '../lib/iso'
+import { bounds, clockwise, containsRect, isRectangle, lShape, rectangle, type Point } from '../lib/polygon'
 import { sanitizeLayout } from '../lib/layout'
 import type { Camera, CameraRotation, Layout, PlacedItem, Room } from '../lib/types'
 
@@ -18,6 +19,29 @@ export const DEFAULT_ROOM: Room = {
 /** Placement snaps to this grid, in cm. Set to 1 with the Alt key for free positioning. */
 export const SNAP_CM = 5
 
+/** Starting shapes offered in the room editor. */
+export const SHAPE_PRESETS: { label: string; make: (w: number, d: number) => Point[] }[] = [
+  { label: 'Rectangle', make: (w, d) => rectangle(w, d) },
+  { label: 'L-shape', make: (w, d) => lShape(w, d, Math.round(w * 0.4), Math.round(d * 0.4)) },
+]
+
+/**
+ * Items that stick out of an irregular room. The bounding box already keeps
+ * everything on screen, so this is a warning rather than a constraint: you can
+ * park something over a notch while you work out where it goes.
+ */
+export function outsideRoom(items: PlacedItem[], room: Room): Set<string> {
+  if (!room.outline) return new Set()
+  const poly = floorOutline(room)
+  const out = new Set<string>()
+  for (const it of items) {
+    const cat = getItem(it.itemId)
+    if (!cat) continue
+    if (!containsRect(poly, footprint(it, cat.width, cat.depth))) out.add(it.uid)
+  }
+  return out
+}
+
 interface PlannerState {
   room: Room
   items: PlacedItem[]
@@ -25,6 +49,8 @@ interface PlannerState {
   camera: Camera
   showGrid: boolean
   showLabels: boolean
+  /** True while the floor plan's corners are being edited on the canvas. */
+  editingShape: boolean
 
   addItem: (itemId: string) => void
   removeItem: (uid: string) => void
@@ -36,11 +62,14 @@ interface PlannerState {
   clearRoom: () => void
 
   setRoom: (patch: Partial<Room>) => void
+  /** Replaces the floor outline; the bounding box follows from it. */
+  setOutline: (outline: Point[] | null) => void
   setCamera: (patch: Partial<Camera>) => void
   rotateCamera: (delta: 1 | -1) => void
 
   toggleGrid: () => void
   toggleLabels: () => void
+  setEditingShape: (editing: boolean) => void
 
   loadLayout: (layout: Layout) => void
   exportLayout: (name: string) => Layout
@@ -92,6 +121,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   camera: { rotation: 0, zoom: 0, panX: 0, panY: 0 },
   showGrid: true,
   showLabels: true,
+  editingShape: false,
 
   addItem: (itemId) => {
     const cat = getItem(itemId)
@@ -146,6 +176,33 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   setRoom: (patch) =>
     set((s) => {
       const room = { ...s.room, ...patch }
+      // Resizing a rectangle keeps it rectangular; an irregular outline is
+      // scaled to the new box so its shape is preserved.
+      if (s.room.outline && (patch.width !== undefined || patch.depth !== undefined)) {
+        const sx = room.width / s.room.width
+        const sy = room.depth / s.room.depth
+        room.outline = s.room.outline.map(([x, y]) => [x * sx, y * sy] as [number, number])
+      }
+      return { room, items: s.items.map((i) => clampToRoom(i, room)) }
+    }),
+
+  setOutline: (outline) =>
+    set((s) => {
+      if (!outline) {
+        const { outline: _dropped, ...rest } = s.room
+        return { room: rest }
+      }
+      // Anchor at the origin, and wind clockwise so the renderer can tell an
+      // outward-facing wall from an inward-facing one.
+      const wound = clockwise(outline)
+      const b = bounds(wound)
+      const moved = wound.map(([x, y]) => [x - b.minX, y - b.minY] as [number, number])
+      const room: Room = {
+        ...s.room,
+        width: Math.max(50, b.maxX - b.minX),
+        depth: Math.max(50, b.maxY - b.minY),
+        outline: isRectangle(moved) ? undefined : moved,
+      }
       return { room, items: s.items.map((i) => clampToRoom(i, room)) }
     }),
 
@@ -158,6 +215,10 @@ export const usePlanner = create<PlannerState>((set, get) => ({
 
   toggleGrid: () => set((s) => ({ showGrid: !s.showGrid })),
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
+  // Editing the plan deselects, so the inspector is not showing a piece of
+  // furniture while the canvas is taking corner drags.
+  setEditingShape: (editingShape) =>
+    set((s) => ({ editingShape, selectedUid: editingShape ? null : s.selectedUid })),
 
   loadLayout: (layout) =>
     set({ room: layout.room, items: layout.items, selectedUid: null }),

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getItem } from '../lib/catalog'
-import { footprint, fromView, ISO_X, ISO_Y, overlaps, project, unproject, viewExtent } from '../lib/iso'
-import { fitZoom, makeTransform, pickColorToIndex, renderScene, type Scene } from '../lib/render'
-import { SNAP_CM, usePlanner } from '../state/store'
+import { floorOutline, footprint, fromView, ISO_X, ISO_Y, overlaps, project, toView, unproject, viewExtent } from '../lib/iso'
+import { nearestEdge, type Point } from '../lib/polygon'
+import { fitZoom, HANDLE_RADIUS, makeTransform, pickColorToIndex, renderScene, type Scene } from '../lib/render'
+import { outsideRoom, SNAP_CM, usePlanner } from '../state/store'
 import type { CatalogItem, PlacedItem } from '../lib/types'
 
 const MIN_ZOOM = 0.4
@@ -37,6 +38,7 @@ type Drag =
   | { kind: 'none' }
   | { kind: 'pan'; lastX: number; lastY: number }
   | { kind: 'item'; uid: string; offsetX: number; offsetY: number }
+  | { kind: 'corner'; index: number }
 
 export function RoomCanvas({
   onContext,
@@ -56,12 +58,28 @@ export function RoomCanvas({
   const selectedUid = usePlanner((s) => s.selectedUid)
   const showGrid = usePlanner((s) => s.showGrid)
   const showLabels = usePlanner((s) => s.showLabels)
+  const editingShape = usePlanner((s) => s.editingShape)
+  const [activeCorner, setActiveCorner] = useState<number | null>(null)
 
   const collisions = useMemo(() => findCollisions(items), [items])
+  const outside = useMemo(() => outsideRoom(items, room), [items, room])
 
   const scene: Scene = useMemo(
-    () => ({ room, items, lookup: getItem, camera, selectedUid, hoverUid, collisions, showGrid, showLabels }),
-    [room, items, camera, selectedUid, hoverUid, collisions, showGrid, showLabels],
+    () => ({
+      room,
+      items,
+      lookup: getItem,
+      camera,
+      selectedUid,
+      hoverUid,
+      collisions,
+      outside,
+      showGrid,
+      showLabels,
+      editing: editingShape,
+      activeCorner,
+    }),
+    [room, items, camera, selectedUid, hoverUid, collisions, outside, showGrid, showLabels, editingShape, activeCorner],
   )
 
   // --- Sizing ---------------------------------------------------------------
@@ -158,13 +176,70 @@ export function RoomCanvas({
     [room, camera, size],
   )
 
+  /** Which floor-plan corner, if any, is under the cursor. */
+  const cornerAt = useCallback(
+    (px: number, py: number): number | null => {
+      const t = makeTransform(room, camera, size)
+      const poly = floorOutline(room)
+      for (let i = 0; i < poly.length; i++) {
+        const v = toView(poly[i][0], poly[i][1], room, camera.rotation)
+        const s = t.toScreen(v.vx, v.vy, 0)
+        if (Math.hypot(s.x - px, s.y - py) <= HANDLE_RADIUS + 3) return i
+      }
+      return null
+    },
+    [room, camera, size],
+  )
+
+  /**
+   * Editing the plan: drag a corner, click an edge to add one, or Alt-click a
+   * corner to take it out. A polygon needs three corners, so the last three
+   * cannot be removed.
+   */
+  const onEditPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>, px: number, py: number): boolean => {
+      const store = usePlanner.getState()
+      const poly = floorOutline(room)
+      const corner = cornerAt(px, py)
+
+      if (corner !== null) {
+        if (e.altKey) {
+          if (poly.length > 3) store.setOutline(poly.filter((_, i) => i !== corner))
+          return true
+        }
+        dragRef.current = { kind: 'corner', index: corner }
+        setActiveCorner(corner)
+        return true
+      }
+
+      // Near an edge: insert a corner there and start dragging it.
+      const floor = toFloor(px, py, 0)
+      const edge = nearestEdge(poly, [floor.x, floor.y])
+      const t = makeTransform(room, camera, size)
+      const v = toView(edge.point[0], edge.point[1], room, camera.rotation)
+      const s = t.toScreen(v.vx, v.vy, 0)
+      if (Math.hypot(s.x - px, s.y - py) <= HANDLE_RADIUS + 6) {
+        const next = [...poly]
+        next.splice(edge.index + 1, 0, edge.point)
+        store.setOutline(next)
+        dragRef.current = { kind: 'corner', index: edge.index + 1 }
+        setActiveCorner(edge.index + 1)
+        return true
+      }
+      return false
+    },
+    [room, camera, size, cornerAt, toFloor],
+  )
+
   // --- Interaction ----------------------------------------------------------
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const { px, py } = localPoint(e)
       canvasRef.current?.setPointerCapture(e.pointerId)
 
-      const uid = e.button === 1 ? null : pickAt(px, py)
+      if (editingShape && onEditPointerDown(e, px, py)) return
+
+      const uid = e.button === 1 || editingShape ? null : pickAt(px, py)
       if (!uid) {
         usePlanner.getState().select(null)
         dragRef.current = { kind: 'pan', lastX: e.clientX, lastY: e.clientY }
@@ -176,7 +251,7 @@ export function RoomCanvas({
       usePlanner.getState().select(uid)
       dragRef.current = { kind: 'item', uid, offsetX: floor.x - placed.x, offsetY: floor.y - placed.y }
     },
-    [items, localPoint, pickAt, toFloor],
+    [items, localPoint, pickAt, toFloor, editingShape, onEditPointerDown],
   )
 
   const onPointerMove = useCallback(
@@ -185,7 +260,17 @@ export function RoomCanvas({
       const { px, py } = localPoint(e)
 
       if (drag.kind === 'none') {
-        setHoverUid(pickAt(px, py))
+        if (editingShape) setActiveCorner(cornerAt(px, py))
+        else setHoverUid(pickAt(px, py))
+        return
+      }
+
+      if (drag.kind === 'corner') {
+        const floor = toFloor(px, py, 0)
+        const snap = e.altKey ? 1 : 10
+        const poly = floorOutline(usePlanner.getState().room).map((p) => [...p] as Point)
+        poly[drag.index] = [Math.round(floor.x / snap) * snap, Math.round(floor.y / snap) * snap]
+        usePlanner.getState().setOutline(poly)
         return
       }
 
@@ -329,7 +414,7 @@ export function RoomCanvas({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const cursor = hoverUid ? 'grab' : 'default'
+  const cursor = editingShape ? (activeCorner !== null ? 'grab' : 'crosshair') : hoverUid ? 'grab' : 'default'
 
   return (
     <div className="canvas-wrap" ref={wrapRef}>
@@ -349,8 +434,15 @@ export function RoomCanvas({
           <span>Pick something from the catalogue on the left to drop it in.</span>
         </div>
       )}
-      {collisions.size > 0 && (
-        <div className="canvas-warning">{collisions.size} items are overlapping</div>
+      {(collisions.size > 0 || outside.size > 0) && (
+        <div className="canvas-warning">
+          {[
+            collisions.size ? `${collisions.size} overlapping` : null,
+            outside.size ? `${outside.size} outside the room` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
       )}
     </div>
   )

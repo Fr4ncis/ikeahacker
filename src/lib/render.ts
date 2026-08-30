@@ -9,9 +9,11 @@
  */
 import { FACE_LIGHT, mix, readableOn, shade } from './color'
 import { subBoxes, localToWorld, type SubBox } from './geometry'
+import type { Point as Vertex } from './polygon'
 import {
   footprint,
   frontSide,
+  outlineInView,
   paintOrder,
   project,
   toView,
@@ -32,6 +34,11 @@ export interface Scene {
   hoverUid: string | null
   /** Items that overlap something else, drawn with a warning tint. */
   collisions: Set<string>
+  /** Items sticking out of an irregular room, flagged the same way. */
+  outside: Set<string>
+  /** When editing the floor plan, the corner under the cursor, if any. */
+  editing: boolean
+  activeCorner: number | null
   showGrid: boolean
   showLabels: boolean
 }
@@ -298,33 +305,50 @@ function drawBox(
   }
 }
 
+/** Traces the floor outline on the canvas at height `z`, without painting it. */
+function tracePolygon(ctx: CanvasRenderingContext2D, t: Transform, poly: Vertex[], z: number) {
+  ctx.beginPath()
+  poly.forEach(([vx, vy], i) => {
+    const s = t.toScreen(vx, vy, z)
+    if (i === 0) ctx.moveTo(s.x, s.y)
+    else ctx.lineTo(s.x, s.y)
+  })
+  ctx.closePath()
+}
+
 function drawRoom(ctx: CanvasRenderingContext2D, t: Transform, scene: Scene) {
   const { room, camera } = scene
   const { width: W, depth: D } = viewExtent(room, camera.rotation)
   const H = room.height
+  const poly = outlineInView(room, camera.rotation)
   const p = (vx: number, vy: number, z: number): [number, number] => {
     const s = t.toScreen(vx, vy, z)
     return [s.x, s.y]
   }
 
   // Floor.
-  fillQuad(ctx, [p(0, 0, 0), p(W, 0, 0), p(W, D, 0), p(0, D, 0)], scene.room.floorColor)
+  tracePolygon(ctx, t, poly, 0)
+  ctx.fillStyle = room.floorColor
+  ctx.fill()
 
   if (scene.showGrid && t.scale > 0.3) {
     ctx.save()
+    // Clip to the floor so the grid stops at the walls of an irregular room.
+    tracePolygon(ctx, t, poly, 0)
+    ctx.clip()
     ctx.strokeStyle = 'rgba(0,0,0,0.10)'
     ctx.lineWidth = 1
     for (let x = 0; x <= W; x += GRID_STEP) {
-      const a = p(Math.min(x, W), 0, 0)
-      const b = p(Math.min(x, W), D, 0)
+      const a = p(x, 0, 0)
+      const b = p(x, D, 0)
       ctx.beginPath()
       ctx.moveTo(a[0], a[1])
       ctx.lineTo(b[0], b[1])
       ctx.stroke()
     }
     for (let y = 0; y <= D; y += GRID_STEP) {
-      const a = p(0, Math.min(y, D), 0)
-      const b = p(W, Math.min(y, D), 0)
+      const a = p(0, y, 0)
+      const b = p(W, y, 0)
       ctx.beginPath()
       ctx.moveTo(a[0], a[1])
       ctx.lineTo(b[0], b[1])
@@ -333,19 +357,35 @@ function drawRoom(ctx: CanvasRenderingContext2D, t: Transform, scene: Scene) {
     ctx.restore()
   }
 
-  // The two walls facing the camera, at vx = 0 (screen left) and vy = 0 (right).
-  fillQuad(
-    ctx,
-    [p(0, 0, 0), p(0, D, 0), p(0, D, H), p(0, 0, H)],
-    mix(room.wallColor, '#000000', 0.1),
-    'rgba(0,0,0,0.12)',
-  )
-  fillQuad(
-    ctx,
-    [p(0, 0, 0), p(W, 0, 0), p(W, 0, H), p(0, 0, H)],
-    mix(room.wallColor, '#000000', 0.02),
-    'rgba(0,0,0,0.12)',
-  )
+  // Walls, extruded from each edge of the outline. Only the far ones are
+  // drawn; a near wall would stand between the camera and the room.
+  //
+  // The outline is wound clockwise, so for an edge a->b the outward normal is
+  // (dy, -dx). The camera looks down the +vx/+vy diagonal, so a wall is a far
+  // wall exactly when its outward normal runs against that diagonal. Rotating
+  // the camera preserves winding, so this holds at every angle -- and unlike a
+  // centroid test it stays correct around the inside corner of an L.
+  const walls: { quad: Quad; depth: number; leftFacing: boolean }[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    const nx = b[1] - a[1]
+    const ny = -(b[0] - a[0])
+    if (nx + ny >= 0) continue
+    walls.push({
+      quad: [p(a[0], a[1], 0), p(b[0], b[1], 0), p(b[0], b[1], H), p(a[0], a[1], H)],
+      depth: (a[0] + b[0] + a[1] + b[1]) / 2,
+      // A wall whose outward normal points along -vx faces screen-left.
+      leftFacing: nx < ny,
+    })
+  }
+  // Furthest first, so walls meeting at an inside corner overlap correctly.
+  walls.sort((l, r) => l.depth - r.depth)
+
+  for (const wall of walls) {
+    // Shade by orientation so adjoining walls stay distinguishable.
+    fillQuad(ctx, wall.quad, mix(room.wallColor, '#000000', wall.leftFacing ? 0.1 : 0.02), 'rgba(0,0,0,0.12)')
+  }
 }
 
 /** Soft contact shadow so items do not look like they float. */
@@ -410,7 +450,7 @@ export function renderScene(
     const selected = placed.uid === scene.selectedUid
     const hovered = placed.uid === scene.hoverUid
 
-    const clashing = scene.collisions.has(placed.uid)
+    const clashing = scene.collisions.has(placed.uid) || scene.outside.has(placed.uid)
     let color = placed.color ?? cat.color
     if (mode === 'display') {
       // Flag a clash with a tint light enough to leave the finish readable;
@@ -457,6 +497,51 @@ export function renderScene(
     }
   }
 
+  if (mode === 'display' && scene.editing) drawFloorHandles(ctx, t, scene)
+
   ctx.restore()
   return t
+}
+
+/** Radius of a floor-plan corner handle, in screen pixels. */
+export const HANDLE_RADIUS = 7
+
+/**
+ * The floor plan's corners and edges while it is being edited: filled dots to
+ * drag, hollow ones at the midpoints to pull out a new corner.
+ */
+function drawFloorHandles(ctx: CanvasRenderingContext2D, t: Transform, scene: Scene) {
+  const poly = outlineInView(scene.room, scene.camera.rotation)
+
+  ctx.save()
+  tracePolygon(ctx, t, poly, 0)
+  ctx.strokeStyle = ACCENT
+  ctx.lineWidth = 2
+  ctx.stroke()
+
+  // Midpoints first, so a real corner is never hidden behind one.
+  ctx.fillStyle = '#ffffff'
+  ctx.lineWidth = 1.5
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    const s = t.toScreen((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0)
+    ctx.beginPath()
+    ctx.arc(s.x, s.y, HANDLE_RADIUS - 2.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = ACCENT
+    ctx.stroke()
+  }
+
+  poly.forEach(([vx, vy], i) => {
+    const s = t.toScreen(vx, vy, 0)
+    ctx.beginPath()
+    ctx.arc(s.x, s.y, HANDLE_RADIUS, 0, Math.PI * 2)
+    ctx.fillStyle = i === scene.activeCorner ? ACCENT : '#ffffff'
+    ctx.fill()
+    ctx.strokeStyle = ACCENT
+    ctx.lineWidth = 2
+    ctx.stroke()
+  })
+  ctx.restore()
 }

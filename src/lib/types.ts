@@ -119,11 +119,17 @@ export interface Camera {
 }
 
 export interface Room {
+  /** Bounding box of the floor, in cm. Always the outline's extent. */
   width: number
   depth: number
   height: number
   wallColor: string
   floorColor: string
+  /**
+   * Floor outline in cm, wound clockwise, with the bounding box anchored at
+   * the origin. Absent means a plain rectangle of `width` x `depth`.
+   */
+  outline?: [number, number][]
 }
 
 export interface Layout {
