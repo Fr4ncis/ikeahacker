@@ -1,0 +1,7 @@
+node_modules
+dist
+.omc
+*.local
+scraper/.cache
+.playwright-mcp
+tsconfig.tsbuildinfo
