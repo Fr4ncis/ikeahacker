@@ -1,0 +1,18 @@
+{
+  "name": "ikeahacker-worker",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create ikeahacker-plans",
+    "db:init": "wrangler d1 execute ikeahacker-plans --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute ikeahacker-plans --local --file=./schema.sql",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.99.0"
+  }
+}

@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from 'react'
 import { getCatalog, getItem } from '../lib/catalog'
 import { exportCsv, exportJson, exportPng } from '../lib/export'
 import type { Scene } from '../lib/render'
-import { sanitizeLayout, shareUrl } from '../lib/layout'
+import { encodeLayout, sanitizeLayout, shareUrl } from '../lib/layout'
+import { shortLinksAvailable, shortUrl, storePlan, ShortLinkError } from '../lib/shortlink'
 import { area } from '../lib/polygon'
 import { floorOutline } from '../lib/iso'
 import {
@@ -85,20 +86,43 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
     onNotice({ text: `Saved “${name}” to this browser.`, tone: 'info' })
   }
 
-  /** Copies a link that carries the whole plan in its fragment. */
+  /**
+   * Copies a link to the plan.
+   *
+   * With a plan service configured the payload is stored and the link carries
+   * only an id. Without one — or if the service is unreachable — the whole
+   * plan travels in the fragment, which always works but makes a long URL.
+   */
   const onShare = async () => {
-    const url = shareUrl(store.exportLayout(saveName.trim() || 'Shared plan'))
+    const layout = store.exportLayout(saveName.trim() || 'Shared plan')
     const count = `${items.length} item${items.length === 1 ? '' : 's'}`
+
+    let url = shareUrl(layout)
+    let note = ''
+
+    if (shortLinksAvailable()) {
+      try {
+        url = shortUrl(await storePlan(encodeLayout(layout)))
+      } catch (err) {
+        note =
+          err instanceof ShortLinkError
+            ? ' Could not reach the link service, so this one carries the whole plan and is long.'
+            : ''
+      }
+    }
     // Chat apps and mail clients start wrapping links somewhere past a couple
     // of thousand characters, so say so rather than let one arrive broken.
-    const long = url.length > 2000 ? ` The link is long (${(url.length / 1024).toFixed(1)} KB) — send it as a link, not as plain text.` : ''
+    if (!note && url.length > 2000) {
+      note = ` The link is long (${(url.length / 1024).toFixed(1)} KB) — send it as a link, not as plain text.`
+    }
+
     try {
       await navigator.clipboard.writeText(url)
-      onNotice({ text: `Link copied — it opens this exact layout, all ${count}.${long}`, tone: long ? 'warning' : 'info' })
+      onNotice({ text: `Link copied — it opens this exact layout, all ${count}.${note}`, tone: note ? 'warning' : 'info' })
     } catch {
       // Clipboard access can be refused, e.g. without a user gesture. Putting
       // the plan in the address bar still lets the link be copied by hand.
-      window.location.hash = new URL(url).hash
+      window.history.replaceState(null, '', url)
       onNotice({ text: 'Link is in the address bar — copy it from there.', tone: 'warning' })
     }
   }

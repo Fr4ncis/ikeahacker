@@ -1,0 +1,86 @@
+name: Re-scrape the IKEA catalogue
+
+on:
+  schedule:
+    # 03:20 UTC daily. Off the hour, because everyone schedules on the hour and
+    # GitHub delays busy slots.
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+    inputs:
+      pip_limit:
+        description: 'Max product pages to fetch (0 skips the slow pass)'
+        required: false
+        default: '3000'
+
+# Never let two scrapes race to commit the same file.
+concurrency:
+  group: rescrape
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Product pages are ~1 MB each and rarely change their measurements, so
+      # carrying the cache between runs keeps this to a few minutes.
+      - name: Restore product-page cache
+        uses: actions/cache@v4
+        with:
+          path: scraper/.cache
+          key: pip-cache-${{ github.run_id }}
+          restore-keys: pip-cache-
+
+      - name: Scrape
+        id: scrape
+        env:
+          PIP_LIMIT: ${{ github.event.inputs.pip_limit || '3000' }}
+          PIP_CONCURRENCY: '6'
+        run: npm run scrape
+
+      # A scrape that comes back with far less than we had almost certainly
+      # means IKEA blocked or changed something, not that they discontinued
+      # half their range. Publishing that would wipe out working layouts.
+      - name: Sanity-check the result
+        run: |
+          COUNT=$(node -p "require('./public/catalog.json').items.length")
+          PREV=$(git show HEAD:public/catalog.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).items.length")
+          echo "scraped $COUNT products, previously $PREV"
+          if [ "$COUNT" -lt 500 ]; then
+            echo "::error::Only $COUNT products scraped; refusing to publish."
+            exit 1
+          fi
+          if [ "$COUNT" -lt $((PREV * 70 / 100)) ]; then
+            echo "::error::$COUNT products is under 70% of the previous $PREV; refusing to publish."
+            exit 1
+          fi
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet -- public/catalog.json; then
+            echo "Catalogue unchanged; nothing to publish."
+            exit 0
+          fi
+          node -e "
+            const c = require('./public/catalog.json');
+            const prices = c.items.filter(i => i.price !== null);
+            const total = prices.reduce((s, i) => s + i.price, 0);
+            console.log(\`\${c.items.length} products across \${c.systems.length} systems, \` +
+                        \`median price \${prices.map(i=>i.price).sort((a,b)=>a-b)[Math.floor(prices.length/2)]}\`);
+          "
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/catalog.json
+          git commit -m "Refresh IKEA catalogue
+
+          Automated scrape. Deploys via the Pages workflow on push."
+          git push

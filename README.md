@@ -72,11 +72,11 @@ Export the plan as a PNG, the list as CSV, or the layout as JSON.
 Layouts can be named and saved, which keeps them in that browser. To move a
 plan somewhere else there are two routes:
 
-- **Share** copies a link with the whole plan packed into it. Opening that link
-  anywhere rebuilds the exact layout — same room, same pieces, same positions.
-  A typical room comes out around 150 characters and a 60-item plan under 2 KB.
-  The payload sits in the URL fragment, so it never reaches a server; there is
-  no backend and nothing is stored anywhere but the link itself.
+- **Share** copies a link that opens the exact layout — same room, same pieces,
+  same positions. With the optional plan service deployed (see below) the link
+  is a short `?s=k4mp2xqd`; without it the whole plan travels in the URL
+  fragment instead, which always works but makes a longer link. Both forms keep
+  working, so a fork with no backend still shares and old long links still open.
 - **Download JSON** and **Import JSON…** round-trip a plan through a file.
 
 Because the catalogue is a snapshot, a plan can outlive an article. Anything a
@@ -191,6 +191,54 @@ Anything arriving from a link, a file or browser storage goes through the same
 validation. Malformed input is rejected outright; input that is merely unknown,
 such as a retired article, is dropped and counted. Positions are clamped rather
 than trusted, and a colour that is not a hex triple is ignored.
+
+## The plan service (optional)
+
+A Cloudflare Worker in `worker/` turns share links into short ids. The app
+works without it — that is the point of the fragment encoding — so this is
+purely to make links pasteable.
+
+It stores the same opaque payload the client already produces and nothing else:
+no accounts, no personal data, and the service has no idea what a plan is,
+which means the client encoding can change without a migration. Re-sharing an
+unchanged plan is deduplicated by content hash, so it returns the same link
+rather than filling the table.
+
+```bash
+cd worker
+npm install
+npx wrangler login                # once, in a browser
+npm run db:create                 # copy the database_id into wrangler.toml
+npm run db:init                   # create the table
+npm run deploy                    # prints the API URL
+```
+
+Then rebuild the app with that URL so Share uses it:
+
+```bash
+VITE_API_URL=https://ikeahacker-plans.<subdomain>.workers.dev npm run build
+```
+
+For the deployed site, set `VITE_API_URL` as a repository variable
+(Settings → Secrets and variables → Actions → Variables) and the Pages workflow
+picks it up. Add the site's origin to `ALLOWED_ORIGINS` in `wrangler.toml`.
+
+Everything fits inside Cloudflare's free tier at any plausible usage.
+
+## Keeping the catalogue current
+
+`.github/workflows/rescrape.yml` re-scrapes IKEA nightly and commits
+`public/catalog.json` when it changes, which redeploys the site. The
+product-page cache is carried between runs, so a nightly run is a few minutes
+rather than the full cold scrape.
+
+It refuses to publish a result under 500 products or under 70% of the previous
+count. A scrape that collapses almost certainly means IKEA blocked or changed
+something rather than discontinuing half their range, and publishing it would
+strip articles out of saved layouts.
+
+Run it by hand from the Actions tab; `PIP_LIMIT=0` skips the slow product-page
+pass if you only want the search-API data.
 
 ## Notes
 

@@ -5,3 +5,7 @@ dist
 scraper/.cache
 .playwright-mcp
 tsconfig.tsbuildinfo
+worker/node_modules
+worker/.wrangler
+.dev.vars
+.env.local

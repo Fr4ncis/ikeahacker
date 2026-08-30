@@ -30,6 +30,10 @@ jobs:
         env:
           # Pages serves this repo from /<repo>/, not the domain root.
           VITE_BASE: /${{ github.event.repository.name }}/
+          # Set this repository variable to the deployed Worker URL and Share
+          # starts producing short links. Unset, sharing still works by packing
+          # the plan into the URL fragment.
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,14 @@
+name = "ikeahacker-plans"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[vars]
+# Origins allowed to call the API. The first is used when a request arrives
+# without an Origin header.
+ALLOWED_ORIGINS = "https://fr4ncis.github.io,http://localhost:5173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ikeahacker-plans"
+# Filled in by `wrangler d1 create ikeahacker-plans`.
+database_id = "PUT_DATABASE_ID_HERE"
