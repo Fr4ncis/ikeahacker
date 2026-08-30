@@ -19,8 +19,9 @@ To refresh the product data, or to point it at a different IKEA market:
 npm run scrape
 ```
 
-`npm test` checks the projection, camera rotation and draw-ordering maths, and
-the layout serialisation that share links depend on.
+`npm test` checks the projection, camera rotation and draw-ordering maths, the
+layout serialisation that share links depend on, and the catalogue grouping and
+filtering.
 
 ## What it does
 
@@ -28,8 +29,19 @@ the layout serialisation that share links depend on.
 depth, height, finish, price, photo and product URL. 40 systems are covered,
 from the modular storage ones (PAX, PLATSA, BILLY, BESTÅ, KALLAX, IVAR, EKET,
 METOD, ELVARLI, BOAXEL, TROFAST) through bedroom, desk, seating and table
-ranges. Filter by category, by system, by free-text search, or by what actually
-fits across your room.
+ranges.
+
+Colourways are folded together. IKEA lists every finish as its own article, so
+a POÄNG armchair appears thirty-three times and a BILLY bookcase eight; here
+that is one product with a row of swatches, which turns 3,725 articles into
+1,568 things you might actually buy. Different *sizes* stay separate, because
+those are different purchases. Searching a finish picks it out — "billy oak"
+lands on the oak one.
+
+Filter by category, by system, by free-text search, and by size: independent
+minimum and maximum for width, depth and height, or one button for whatever
+fits the room you have set up. Right-click any product to open it on ikea.com,
+drop it straight into the room, or copy its article number.
 
 **Room.** Set the width, depth and height in centimetres, or start from a
 preset. Recolour the walls and floor. The two walls facing the camera are drawn
@@ -38,8 +50,9 @@ so pieces read against them.
 **Placing things.** Click a product to drop it in the first free spot. Drag it
 around the floor on a 5 cm grid (hold <kbd>Alt</kbd> for 1 cm). Rotate in 90°
 steps, raise it off the floor to hang wall units, recolour a single piece, or
-duplicate it. Overlapping items are flagged. Turn the camera in quarter steps
-to check the layout from each corner.
+duplicate it. Right-click something in the room for the same menu plus
+duplicate, rotate and remove. Overlapping items are flagged. Turn the camera in
+quarter steps to check the layout from each corner.
 
 Pieces are drawn as shaded isometric boxes with front detailing that follows the
 product type: doors get a split and handles, chests get drawer lines, bookcases
@@ -126,11 +139,11 @@ src/lib/
   layout.ts      validating a layout, and packing one into a share link
   render.ts      canvas painting, and the colour-coded pick pass for hit testing
   geometry.ts    a product's boxes: slab and legs, seat and back, or one box
-  catalog.ts     loading and filtering the scraped data
+  catalog.ts     loading the scraped data, grouping colourways, filtering
   export.ts      PNG, CSV and JSON output
-src/components/  toolbar, catalogue sidebar, canvas, inspector
+src/components/  toolbar, catalogue sidebar, canvas, inspector, menus
 src/state/       the room, what is in it, and browser persistence
-test/            geometry and serialisation checks
+test/            geometry, serialisation and catalogue checks
 public/          the scraped catalogue, fetched at startup
 ```
 

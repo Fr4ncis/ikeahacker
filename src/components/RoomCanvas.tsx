@@ -3,7 +3,7 @@ import { getItem } from '../lib/catalog'
 import { footprint, fromView, ISO_X, ISO_Y, overlaps, project, unproject, viewExtent } from '../lib/iso'
 import { fitZoom, makeTransform, pickColorToIndex, renderScene, type Scene } from '../lib/render'
 import { SNAP_CM, usePlanner } from '../state/store'
-import type { PlacedItem } from '../lib/types'
+import type { CatalogItem, PlacedItem } from '../lib/types'
 
 const MIN_ZOOM = 0.4
 const MAX_ZOOM = 6
@@ -38,7 +38,11 @@ type Drag =
   | { kind: 'pan'; lastX: number; lastY: number }
   | { kind: 'item'; uid: string; offsetX: number; offsetY: number }
 
-export function RoomCanvas() {
+export function RoomCanvas({
+  onContext,
+}: {
+  onContext: (item: CatalogItem, uid: string, x: number, y: number) => void
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pickRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -207,6 +211,22 @@ export function RoomCanvas() {
     [localPoint, pickAt, toFloor],
   )
 
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const { px, py } = localPoint(e)
+      const uid = pickAt(px, py)
+      const placed = uid ? items.find((i) => i.uid === uid) : undefined
+      const cat = placed && getItem(placed.itemId)
+      // Over bare floor there is nothing to offer, so leave the browser's own
+      // menu alone rather than replacing it with an empty one.
+      if (!placed || !cat) return
+      e.preventDefault()
+      usePlanner.getState().select(placed.uid)
+      onContext(cat, placed.uid, e.clientX, e.clientY)
+    },
+    [items, localPoint, pickAt, onContext],
+  )
+
   const endDrag = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     canvasRef.current?.releasePointerCapture(e.pointerId)
     dragRef.current = { kind: 'none' }
@@ -321,6 +341,7 @@ export function RoomCanvas() {
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onPointerLeave={() => setHoverUid(null)}
+        onContextMenu={onContextMenu}
       />
       {items.length === 0 && (
         <div className="canvas-empty">
