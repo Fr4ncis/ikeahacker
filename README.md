@@ -38,10 +38,22 @@ that is one product with a row of swatches, which turns 3,725 articles into
 those are different purchases. Searching a finish picks it out — "billy oak"
 lands on the oak one.
 
-Filter by category, by system, by free-text search, and by size: independent
-minimum and maximum for width, depth and height, or one button for whatever
-fits the room you have set up. Right-click any product to open it on ikea.com,
-drop it straight into the room, or copy its article number.
+Filter by category, by system, by free-text search, and by size. The System and
+Size filters are collapsible and only one opens at a time, so the panel stays
+about 70 px tall until you reach for it, with the current selection shown in
+the header.
+
+Sizes are pills, one row per dimension, and they are contextual: they show the
+sizes actually present in what you are looking at, each with how many products
+it would leave. Pick BILLY and the widths are 40, 80, 95, 120, 136, 160, 200,
+215, 240 — the sizes that exist, not an abstract range. They are multi-select,
+choosing a width narrows the depths and heights on offer, and a dimension's own
+choice does not collapse its own list, so you can switch between sizes rather
+than having to clear first. One button restricts every dimension to what will
+physically go in the room.
+
+Right-click any product to open it on ikea.com, drop it straight into the room,
+or copy its article number.
 
 **Room.** Set the width, depth and height in centimetres, or start from a
 preset. Recolour the walls and floor.
@@ -165,6 +177,18 @@ be nearer than a wardrobe at one end and further at the other, and no single
 key expresses that. Instead each pair that a separating axis can order becomes
 an edge, and the graph is sorted back to front; interpenetrating pieces, which
 have no correct answer, fall back to distance.
+
+### Sizes
+
+Size facets are computed on whole centimetres. IKEA publishes the same KALLAX
+shelving unit at both 146.5 and 147 cm depending on the variant, and offering
+those as two choices would be noise. Rounding folds them together while leaving
+genuinely distinct products alone: the 146 cm KALLAX underframe keeps its own
+pill, and modular values like PAX's 50 / 75 / 100 are untouched.
+
+Each dimension's facet is computed with every other filter applied but its own
+selection ignored, which is what lets you switch from "80 wide" to "100 wide"
+directly instead of the list collapsing to the one size already chosen.
 
 ### Walls of an irregular room
 

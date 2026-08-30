@@ -148,35 +148,81 @@ export function categories(): SystemCategory[] {
   return CATEGORY_ORDER.filter((c) => systems.some((s) => s.category === c))
 }
 
-/** An inclusive cm range. A bound of null means "no limit". */
-export type Range = [min: number | null, max: number | null]
-
 export interface Filters {
   query: string
   category: SystemCategory | 'all'
   system: string | 'all'
-  width: Range
-  depth: Range
-  height: Range
+  /** Selected widths in whole cm. Empty means any. */
+  widths: number[]
+  depths: number[]
+  heights: number[]
 }
-
-export const NO_RANGE: Range = [null, null]
 
 export const EMPTY_FILTERS: Filters = {
   query: '',
   category: 'all',
   system: 'all',
-  width: NO_RANGE,
-  depth: NO_RANGE,
-  height: NO_RANGE,
+  widths: [],
+  depths: [],
+  heights: [],
 }
 
-export const isRangeSet = (r: Range) => r[0] !== null || r[1] !== null
+/** The three dimensions you can filter on. */
+export const DIMENSIONS = ['widths', 'depths', 'heights'] as const
+export type Dimension = (typeof DIMENSIONS)[number]
 
-export const hasSizeFilter = (f: Filters) => isRangeSet(f.width) || isRangeSet(f.depth) || isRangeSet(f.height)
+export const DIMENSION_LABELS: Record<Dimension, string> = {
+  widths: 'Width',
+  depths: 'Depth',
+  heights: 'Height',
+}
 
-const inRange = (value: number, [min, max]: Range) =>
-  (min === null || value >= min) && (max === null || value <= max)
+const MEASURE: Record<Dimension, (g: ProductGroup) => number> = {
+  widths: (g) => g.width,
+  depths: (g) => g.depth,
+  heights: (g) => g.height,
+}
+
+/**
+ * Sizes are faceted on whole centimetres. IKEA publishes a KALLAX at 146,
+ * 146.5, 146.6 and 147 cm depending on the variant, which are the same shelf
+ * as far as planning a room goes; rounding folds those into one choice while
+ * leaving meaningful values like PAX's 50 / 75 / 100 untouched.
+ */
+export const sizeOf = (group: ProductGroup, dimension: Dimension) => Math.round(MEASURE[dimension](group))
+
+export const hasSizeFilter = (f: Filters) => DIMENSIONS.some((d) => f[d].length > 0)
+
+/** Toggles one value in a dimension, since sizes are multi-select. */
+export function toggleSize(filters: Filters, dimension: Dimension, value: number): Filters {
+  const current = filters[dimension]
+  return {
+    ...filters,
+    [dimension]: current.includes(value) ? current.filter((v) => v !== value) : [...current, value].sort((a, b) => a - b),
+  }
+}
+
+export function clearSizes(filters: Filters): Filters {
+  return { ...filters, widths: [], depths: [], heights: [] }
+}
+
+/** Does a product pass every filter except, optionally, one dimension? */
+function matches(group: ProductGroup, filters: Filters, terms: string[], ignore?: Dimension): number | null {
+  if (filters.category !== 'all' && group.category !== filters.category) return null
+  if (filters.system !== 'all' && group.system !== filters.system) return null
+
+  for (const dimension of DIMENSIONS) {
+    if (dimension === ignore) continue
+    const wanted = filters[dimension]
+    if (wanted.length && !wanted.includes(sizeOf(group, dimension))) return null
+  }
+
+  if (!terms.length) return 0
+  const variant = group.haystacks.findIndex((h) => terms.every((t) => h.includes(t)))
+  return variant === -1 ? null : variant
+}
+
+const termsOf = (query: string) => query.toLowerCase().split(/\s+/).filter(Boolean)
 
 /** A product that matched, plus which colourway the query pointed at. */
 export interface GroupMatch {
@@ -191,26 +237,55 @@ export interface GroupMatch {
  * something sensible, and "billy oak" lands on the oak colourway.
  */
 export function filterGroups(filters: Filters, limit = 200): { matches: GroupMatch[]; total: number } {
-  const terms = filters.query.toLowerCase().split(/\s+/).filter(Boolean)
-  const matches: GroupMatch[] = []
+  const terms = termsOf(filters.query)
+  const found: GroupMatch[] = []
 
   for (const group of groups) {
-    if (filters.category !== 'all' && group.category !== filters.category) continue
-    if (filters.system !== 'all' && group.system !== filters.system) continue
-    if (!inRange(group.width, filters.width)) continue
-    if (!inRange(group.depth, filters.depth)) continue
-    if (!inRange(group.height, filters.height)) continue
+    const variant = matches(group, filters, terms)
+    if (variant !== null) found.push({ group, variant })
+  }
+  return { matches: found.slice(0, limit), total: found.length }
+}
 
-    if (!terms.length) {
-      matches.push({ group, variant: 0 })
-      continue
-    }
-    const variant = group.haystacks.findIndex((h) => terms.every((t) => h.includes(t)))
-    if (variant !== -1) matches.push({ group, variant })
+export interface SizeOption {
+  value: number
+  /** How many products would remain if this size were picked. */
+  count: number
+}
+
+/**
+ * The sizes worth offering, given everything else that is selected.
+ *
+ * A dimension's own selection is excluded from its own facet, so choosing
+ * "80 wide" leaves the other widths visible to switch to rather than
+ * collapsing the list to the one thing already picked.
+ */
+export function sizeFacets(filters: Filters): Record<Dimension, SizeOption[]> {
+  const terms = termsOf(filters.query)
+  const tallies: Record<Dimension, Map<number, number>> = {
+    widths: new Map(),
+    depths: new Map(),
+    heights: new Map(),
   }
 
-  return { matches: matches.slice(0, limit), total: matches.length }
+  for (const dimension of DIMENSIONS) {
+    const tally = tallies[dimension]
+    for (const group of groups) {
+      if (matches(group, filters, terms, dimension) === null) continue
+      const value = sizeOf(group, dimension)
+      tally.set(value, (tally.get(value) ?? 0) + 1)
+    }
+  }
+
+  return {
+    widths: toOptions(tallies.widths),
+    depths: toOptions(tallies.depths),
+    heights: toOptions(tallies.heights),
+  }
 }
+
+const toOptions = (tally: Map<number, number>): SizeOption[] =>
+  [...tally.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => a.value - b.value)
 
 export function formatPrice(price: number | null, currency: string): string {
   if (price === null) return '—'

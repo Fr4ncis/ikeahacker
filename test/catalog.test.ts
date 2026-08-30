@@ -12,7 +12,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const catalog = JSON.parse(readFileSync(resolve(here, '../public/catalog.json'), 'utf8')) as Catalog
 ;(globalThis as unknown as { fetch: unknown }).fetch = async () => ({ ok: true, status: 200, json: async () => catalog })
 
-const { EMPTY_FILTERS, filterGroups, formatPriceRange, loadCatalog, sizeBounds } = await import('../src/lib/catalog.ts')
+const { EMPTY_FILTERS, clearSizes, filterGroups, formatPriceRange, loadCatalog, sizeFacets, sizeOf, toggleSize } =
+  await import('../src/lib/catalog.ts')
 await loadCatalog('ignored')
 
 let failures = 0
@@ -115,63 +116,158 @@ check(
   filterGroups({ ...EMPTY_FILTERS, query: 'billy 80 202' }).total > 0,
 )
 
-// --- Size ranges ------------------------------------------------------------
+// --- Size facets ------------------------------------------------------------
 
-const bounds = sizeBounds()
+const facets = sizeFacets(EMPTY_FILTERS)
+
 check(
-  `size bounds span the catalogue (w ${bounds.width[0]}-${bounds.width[1]} cm)`,
-  bounds.width[0] > 0 && bounds.width[1] >= bounds.width[0] && bounds.height[1] > 0,
+  `sizes are offered as discrete values (${facets.widths.length} widths, ${facets.heights.length} heights)`,
+  facets.widths.length > 5 && facets.heights.length > 5,
 )
 
 check(
-  'a maximum width excludes everything wider',
+  'every offered size is a whole number of centimetres',
+  facets.widths.every((o) => Number.isInteger(o.value)) && facets.depths.every((o) => Number.isInteger(o.value)),
+)
+
+check('offered sizes are in ascending order', facets.widths.every((o, i) => i === 0 || facets.widths[i - 1].value < o.value))
+
+check(
+  'each size carries how many products it would leave',
+  facets.widths.every((o) => o.count > 0) &&
+    facets.widths.reduce((sum, o) => sum + o.count, 0) === all.total,
+)
+
+check(
+  'sub-centimetre variants of one product fold into a single choice',
   (() => {
-    const { matches } = filterGroups({ ...EMPTY_FILTERS, width: [null, 60] }, 1e6)
-    return matches.length > 0 && matches.every((m) => m.group.width <= 60)
+    // IKEA lists the KALLAX shelving unit at both 146.5 and 147 cm depending
+    // on the variant. That is one shelf. The 146 cm underframe beside it is a
+    // different product and must keep its own pill.
+    const shelves = catalog.items.filter((i) => i.system === 'KALLAX' && /shelving unit/i.test(i.type))
+    const rawWidths = new Set(shelves.map((i) => i.width).filter((w) => w >= 146 && w <= 147))
+    const faceted = new Set([...rawWidths].map((w) => Math.round(w)))
+    return rawWidths.size >= 2 && faceted.size === 1
   })(),
 )
 
 check(
-  'a minimum height excludes everything shorter',
+  'a genuinely different product at a nearby size keeps its own choice',
   (() => {
-    const { matches } = filterGroups({ ...EMPTY_FILTERS, height: [180, null] }, 1e6)
-    return matches.length > 0 && matches.every((m) => m.group.height >= 180)
+    const widths = sizeFacets({ ...EMPTY_FILTERS, system: 'KALLAX' }).widths.map((o) => o.value)
+    // The 146 cm underframe and the 147 cm shelf stay distinct.
+    return widths.includes(146) && widths.includes(147)
   })(),
 )
 
 check(
-  'the three ranges combine',
+  'a modular system keeps its meaningful widths',
   (() => {
-    const { matches } = filterGroups(
-      { ...EMPTY_FILTERS, width: [40, 100], depth: [null, 40], height: [150, 220] },
-      1e6,
-    )
+    const pax = sizeFacets({ ...EMPTY_FILTERS, system: 'PAX' }).widths.map((o) => o.value)
+    return [50, 75, 100].every((w) => pax.includes(w))
+  })(),
+  JSON.stringify(sizeFacets({ ...EMPTY_FILTERS, system: 'PAX' }).widths.map((o) => o.value)),
+)
+
+check(
+  'picking a system leaves few enough sizes to show as pills',
+  ['PAX', 'BILLY', 'EKET', 'KALLAX'].every((system) => {
+    const f = sizeFacets({ ...EMPTY_FILTERS, system })
+    return f.widths.length <= 25 && f.depths.length <= 25 && f.heights.length <= 25
+  }),
+)
+
+check(
+  'selecting a width keeps only products of that width',
+  (() => {
+    const { matches } = filterGroups({ ...EMPTY_FILTERS, widths: [80] }, 1e6)
+    return matches.length > 0 && matches.every((m) => sizeOf(m.group, 'widths') === 80)
+  })(),
+)
+
+check(
+  'sizes are multi-select, so two widths return both',
+  (() => {
+    const only80 = filterGroups({ ...EMPTY_FILTERS, widths: [80] }, 1e6).total
+    const only60 = filterGroups({ ...EMPTY_FILTERS, widths: [60] }, 1e6).total
+    return filterGroups({ ...EMPTY_FILTERS, widths: [60, 80] }, 1e6).total === only60 + only80
+  })(),
+)
+
+check(
+  'the three dimensions combine',
+  (() => {
+    const f = { ...EMPTY_FILTERS, widths: [80], depths: [28], heights: [202] }
+    const { matches } = filterGroups(f, 1e6)
     return (
       matches.length > 0 &&
       matches.every(
         (m) =>
-          m.group.width >= 40 && m.group.width <= 100 && m.group.depth <= 40 &&
-          m.group.height >= 150 && m.group.height <= 220,
+          sizeOf(m.group, 'widths') === 80 && sizeOf(m.group, 'depths') === 28 && sizeOf(m.group, 'heights') === 202,
       )
     )
   })(),
 )
 
 check(
-  'an impossible range returns nothing rather than everything',
-  filterGroups({ ...EMPTY_FILTERS, width: [900, 950] }, 1e6).total === 0,
-)
-
-check(
-  'an open range is the same as no filter',
-  filterGroups({ ...EMPTY_FILTERS, width: [null, null] }, 1e6).total === all.total,
-)
-
-check(
-  'ranges combine with a system filter',
+  'a dimension’s own choice does not collapse its own list',
   (() => {
-    const { matches } = filterGroups({ ...EMPTY_FILTERS, system: 'BILLY', height: [null, 110] }, 1e6)
-    return matches.length > 0 && matches.every((m) => m.group.system === 'BILLY' && m.group.height <= 110)
+    // Having picked 80 wide, the other widths must stay available to switch to.
+    const before = sizeFacets({ ...EMPTY_FILTERS, system: 'BILLY' }).widths.length
+    const after = sizeFacets({ ...EMPTY_FILTERS, system: 'BILLY', widths: [80] }).widths.length
+    return before > 1 && after === before
+  })(),
+)
+
+check(
+  'but choosing a width does narrow the other dimensions',
+  (() => {
+    const all = sizeFacets({ ...EMPTY_FILTERS, system: 'PAX' }).heights.length
+    const narrowed = sizeFacets({ ...EMPTY_FILTERS, system: 'PAX', widths: [50] }).heights.length
+    return narrowed <= all
+  })(),
+)
+
+check(
+  'facets follow the search box',
+  (() => {
+    const f = sizeFacets({ ...EMPTY_FILTERS, query: 'billy bookcase' })
+    const { matches } = filterGroups({ ...EMPTY_FILTERS, query: 'billy bookcase' }, 1e6)
+    const actual = new Set(matches.map((m) => sizeOf(m.group, 'widths')))
+    return f.widths.length === actual.size && f.widths.every((o) => actual.has(o.value))
+  })(),
+)
+
+check(
+  'every offered size yields at least one product when picked',
+  sizeFacets({ ...EMPTY_FILTERS, system: 'BILLY' }).widths.every(
+    (o) => filterGroups({ ...EMPTY_FILTERS, system: 'BILLY', widths: [o.value] }, 1e6).total === o.count,
+  ),
+)
+
+check('toggling a size on and off returns to where it started',
+  (() => {
+    const on = toggleSize(EMPTY_FILTERS, 'widths', 80)
+    const off = toggleSize(on, 'widths', 80)
+    return on.widths.join() === '80' && off.widths.length === 0
+  })(),
+)
+
+check('clearing sizes leaves the other filters alone',
+  (() => {
+    const f = clearSizes({ ...EMPTY_FILTERS, system: 'PAX', query: 'white', widths: [50], heights: [201] })
+    return f.system === 'PAX' && f.query === 'white' && !f.widths.length && !f.heights.length
+  })(),
+)
+
+check('no size selection is the same as no filter',
+  filterGroups({ ...EMPTY_FILTERS, widths: [], depths: [], heights: [] }, 1e6).total === all.total)
+
+check(
+  'sizes combine with a system filter',
+  (() => {
+    const { matches } = filterGroups({ ...EMPTY_FILTERS, system: 'BILLY', widths: [80] }, 1e6)
+    return matches.length > 0 && matches.every((m) => m.group.system === 'BILLY' && sizeOf(m.group, 'widths') === 80)
   })(),
 )
 

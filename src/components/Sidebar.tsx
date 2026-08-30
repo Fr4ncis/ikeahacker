@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   CATEGORY_LABELS,
+  DIMENSIONS,
+  DIMENSION_LABELS,
   EMPTY_FILTERS,
   categories,
+  clearSizes,
   filterGroups,
   formatPrice,
   formatPriceRange,
   getCatalog,
   hasSizeFilter,
-  isRangeSet,
-  NO_RANGE,
-  sizeBounds,
+  sizeFacets,
+  toggleSize,
+  type Dimension,
   type Filters,
   type GroupMatch,
-  type Range,
 } from '../lib/catalog'
 import { usePlanner } from '../state/store'
 import type { CatalogItem } from '../lib/types'
@@ -97,41 +99,40 @@ function ProductCard({
   )
 }
 
-function RangeRow({
-  label,
-  range,
-  bounds,
-  onChange,
+/** One collapsible filter section. Only one is ever open, keeping the panel short. */
+function Facet({
+  title,
+  summary,
+  open,
+  onToggle,
+  onClear,
+  children,
 }: {
-  label: string
-  range: Range
-  bounds: [number, number]
-  onChange: (r: Range) => void
+  title: string
+  summary: string
+  open: boolean
+  onToggle: () => void
+  onClear?: () => void
+  children: React.ReactNode
 }) {
-  const parse = (raw: string): number | null => {
-    const v = Number(raw)
-    return raw.trim() === '' || !Number.isFinite(v) ? null : v
-  }
   return (
-    <div className="range-row">
-      <span>{label}</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        placeholder={String(bounds[0])}
-        value={range[0] ?? ''}
-        onChange={(e) => onChange([parse(e.target.value), range[1]])}
-      />
-      <span className="range-dash">–</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        placeholder={String(bounds[1])}
-        value={range[1] ?? ''}
-        onChange={(e) => onChange([range[0], parse(e.target.value)])}
-      />
-      <span className="range-unit">cm</span>
-    </div>
+    <section className={`facet ${open ? 'facet--open' : ''}`}>
+      <button className="facet-head" onClick={onToggle} aria-expanded={open}>
+        <span className="facet-caret" aria-hidden="true" />
+        <span className="facet-title">{title}</span>
+        <span className={`facet-summary ${onClear ? 'facet-summary--on' : ''}`}>{summary}</span>
+      </button>
+      {open && (
+        <div className="facet-body">
+          {children}
+          {onClear && (
+            <button className="facet-clear" onClick={onClear}>
+              Clear {title.toLowerCase()}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -144,13 +145,14 @@ export function Sidebar({
   const addItem = usePlanner((s) => s.addItem)
   const room = usePlanner((s) => s.room)
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
-  const [showSize, setShowSize] = useState(false)
+  const [open, setOpen] = useState<'system' | 'size' | null>(null)
   const [shown, setShown] = useState(PAGE)
 
-  const patch = (p: Partial<Filters>) => {
-    setFilters((f) => ({ ...f, ...p }))
+  const update = (next: Filters) => {
+    setFilters(next)
     setShown(PAGE)
   }
+  const patch = (p: Partial<Filters>) => update({ ...filters, ...p })
 
   const systems = useMemo(
     () =>
@@ -161,18 +163,28 @@ export function Sidebar({
   )
 
   const { matches, total } = useMemo(() => filterGroups(filters, 400), [filters])
+  const facets = useMemo(() => (open === 'size' ? sizeFacets(filters) : null), [filters, open])
   const visible = matches.slice(0, shown)
   const activeSystem = catalog.systems.find((s) => s.id === filters.system)
-  const bounds = sizeBounds()
   const sizeActive = hasSizeFilter(filters)
 
-  /** Restricts every dimension to what will physically go in the room. */
-  const fitToRoom = () =>
-    patch({
-      width: [null, room.width],
-      depth: [null, room.depth],
-      height: [null, room.height],
+  const sizeSummary = sizeActive
+    ? DIMENSIONS.filter((d) => filters[d].length)
+        .map((d) => `${DIMENSION_LABELS[d].toLowerCase()} ${filters[d].join(', ')}`)
+        .join(' · ')
+    : 'Any size'
+
+  /** Restricts every dimension to sizes that will physically go in the room. */
+  const fitToRoom = () => {
+    const limits: Record<Dimension, number> = { widths: room.width, depths: room.depth, heights: room.height }
+    const available = sizeFacets(clearSizes(filters))
+    update({
+      ...filters,
+      widths: available.widths.filter((o) => o.value <= limits.widths).map((o) => o.value),
+      depths: available.depths.filter((o) => o.value <= limits.depths).map((o) => o.value),
+      heights: available.heights.filter((o) => o.value <= limits.heights).map((o) => o.value),
     })
+  }
 
   return (
     <aside className="sidebar">
@@ -201,63 +213,82 @@ export function Sidebar({
             </button>
           ))}
         </div>
+      </div>
 
-        <div className="systems">
-          <button
-            className={`system ${filters.system === 'all' ? 'system--on' : ''}`}
-            onClick={() => patch({ system: 'all' })}
-          >
-            Every system
-          </button>
-          {systems.map((s) => (
+      <div className="facets">
+        <Facet
+          title="System"
+          summary={activeSystem ? activeSystem.label : 'Every system'}
+          open={open === 'system'}
+          onToggle={() => setOpen(open === 'system' ? null : 'system')}
+          onClear={filters.system !== 'all' ? () => patch({ system: 'all' }) : undefined}
+        >
+          <div className="pills pills--scroll">
             <button
-              key={s.id}
-              className={`system ${filters.system === s.id ? 'system--on' : ''}`}
-              onClick={() => patch({ system: s.id })}
-              title={s.blurb}
+              className={`pill ${filters.system === 'all' ? 'pill--on' : ''}`}
+              onClick={() => patch({ system: 'all' })}
             >
-              {s.label}
-              <span className="system-count">{s.count}</span>
+              Every system
             </button>
-          ))}
-        </div>
-
-        {activeSystem && <p className="system-blurb">{activeSystem.blurb}</p>}
-
-        <div className="size-filter">
-          <button className={`size-toggle ${sizeActive ? 'size-toggle--on' : ''}`} onClick={() => setShowSize((v) => !v)}>
-            {showSize ? '▾' : '▸'} Size{sizeActive ? ' · on' : ''}
-          </button>
-          {sizeActive && (
-            <button
-              className="size-clear"
-              onClick={() => patch({ width: NO_RANGE, depth: NO_RANGE, height: NO_RANGE })}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-
-        {showSize && (
-          <div className="ranges">
-            <RangeRow label="Width" range={filters.width} bounds={bounds.width} onChange={(width) => patch({ width })} />
-            <RangeRow label="Depth" range={filters.depth} bounds={bounds.depth} onChange={(depth) => patch({ depth })} />
-            <RangeRow
-              label="Height"
-              range={filters.height}
-              bounds={bounds.height}
-              onChange={(height) => patch({ height })}
-            />
-            <button className="fit-room" onClick={fitToRoom}>
-              Only what fits the room ({room.width} × {room.depth} × {room.height} cm)
-            </button>
+            {systems.map((s) => (
+              <button
+                key={s.id}
+                className={`pill ${filters.system === s.id ? 'pill--on' : ''}`}
+                onClick={() => patch({ system: s.id })}
+                title={s.blurb}
+              >
+                {s.label}
+                <span className="pill-count">{s.count}</span>
+              </button>
+            ))}
           </div>
-        )}
+          {activeSystem && <p className="system-blurb">{activeSystem.blurb}</p>}
+        </Facet>
+
+        <Facet
+          title="Size"
+          summary={sizeSummary}
+          open={open === 'size'}
+          onToggle={() => setOpen(open === 'size' ? null : 'size')}
+          onClear={sizeActive ? () => update(clearSizes(filters)) : undefined}
+        >
+          {facets &&
+            DIMENSIONS.map((dimension) => {
+              const options = facets[dimension]
+              const chosen = filters[dimension]
+              return (
+                <div className="dimension" key={dimension}>
+                  <span className="dimension-label">
+                    {DIMENSION_LABELS[dimension]} <em>cm</em>
+                  </span>
+                  {options.length ? (
+                    <div className="pills pills--scroll pills--sizes">
+                      {options.map((o) => (
+                        <button
+                          key={o.value}
+                          className={`pill pill--size ${chosen.includes(o.value) ? 'pill--on' : ''}`}
+                          onClick={() => update(toggleSize(filters, dimension, o.value))}
+                          title={`${o.count} product${o.count === 1 ? '' : 's'}`}
+                        >
+                          {o.value}
+                          <span className="pill-count">{o.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-note empty-note--inline">Nothing at this size.</p>
+                  )}
+                </div>
+              )
+            })}
+          <button className="fit-room" onClick={fitToRoom}>
+            Only what fits the room ({room.width} × {room.depth} × {room.height} cm)
+          </button>
+        </Facet>
       </div>
 
       <div className="results-count">
         {total.toLocaleString()} product{total === 1 ? '' : 's'}
-        {isRangeSet(filters.width) || isRangeSet(filters.depth) || isRangeSet(filters.height) ? ' in range' : ''}
       </div>
 
       <div className="item-list">
@@ -270,7 +301,7 @@ export function Sidebar({
             onContext={onContext}
           />
         ))}
-        {!visible.length && <p className="empty-note">Nothing matches. Try a shorter search or a wider size range.</p>}
+        {!visible.length && <p className="empty-note">Nothing matches. Try a shorter search or fewer sizes.</p>}
         {shown < matches.length && (
           <button className="more" onClick={() => setShown((n) => n + PAGE)}>
             Show {Math.min(PAGE, matches.length - shown)} more
