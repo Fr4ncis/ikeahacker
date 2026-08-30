@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getItem } from '../lib/catalog'
 import { footprint, overlaps } from '../lib/iso'
+import { sanitizeLayout } from '../lib/layout'
 import type { Camera, CameraRotation, Layout, PlacedItem, Room } from '../lib/types'
 
 const AUTOSAVE_KEY = 'ikeahacker.autosave'
@@ -197,16 +198,22 @@ export function deleteSave(name: string): SavedLayouts {
   return saves
 }
 
-/** Restores the autosaved layout, if there is one. Called once on startup. */
-export function restoreAutosave(): void {
+/**
+ * Restores the autosaved layout, if there is one. Called once on startup.
+ * Returns how many items referenced articles no longer in the catalogue, so a
+ * re-scrape that retires a product does not make furniture vanish silently.
+ */
+export function restoreAutosave(): number {
   try {
     const stored = localStorage.getItem(AUTOSAVE_KEY)
-    if (!stored) return
-    const layout = JSON.parse(stored) as Layout
-    if (layout.version !== 1 || !Array.isArray(layout.items)) return
-    usePlanner.getState().loadLayout(layout)
+    if (!stored) return 0
+    const loaded = sanitizeLayout(JSON.parse(stored))
+    if (!loaded) return 0
+    usePlanner.getState().loadLayout(loaded.layout)
+    return loaded.dropped
   } catch {
     // A corrupt autosave should not stop the app from starting.
+    return 0
   }
 }
 

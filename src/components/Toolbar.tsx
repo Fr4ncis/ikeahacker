@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { getCatalog, getItem } from '../lib/catalog'
 import { exportCsv, exportJson, exportPng } from '../lib/export'
 import type { Scene } from '../lib/render'
+import { sanitizeLayout, shareUrl } from '../lib/layout'
 import { deleteSave, readSaves, usePlanner, writeSave, type SavedLayouts } from '../state/store'
+import type { LoadNotice } from '../App'
 
 const PRESETS: { label: string; width: number; depth: number }[] = [
   { label: 'Box room 3×2.5 m', width: 300, depth: 250 },
@@ -33,7 +35,7 @@ function RoomField({ label, value, onChange }: { label: string; value: number; o
   )
 }
 
-export function Toolbar() {
+export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }) {
   const catalog = getCatalog()
   const room = usePlanner((s) => s.room)
   const items = usePlanner((s) => s.items)
@@ -43,6 +45,7 @@ export function Toolbar() {
   const [saves, setSaves] = useState<SavedLayouts>(() => readSaves())
   const [panel, setPanel] = useState<'room' | 'saves' | null>(null)
   const [saveName, setSaveName] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const scene: Scene = useMemo(
     () => ({
@@ -66,6 +69,44 @@ export function Toolbar() {
     const name = saveName.trim() || `Plan ${saveNames.length + 1}`
     setSaves(writeSave(store.exportLayout(name)))
     setSaveName('')
+    onNotice({ text: `Saved “${name}” to this browser.`, tone: 'info' })
+  }
+
+  /** Copies a link that carries the whole plan in its fragment. */
+  const onShare = async () => {
+    const url = shareUrl(store.exportLayout(saveName.trim() || 'Shared plan'))
+    const count = `${items.length} item${items.length === 1 ? '' : 's'}`
+    // Chat apps and mail clients start wrapping links somewhere past a couple
+    // of thousand characters, so say so rather than let one arrive broken.
+    const long = url.length > 2000 ? ` The link is long (${(url.length / 1024).toFixed(1)} KB) — send it as a link, not as plain text.` : ''
+    try {
+      await navigator.clipboard.writeText(url)
+      onNotice({ text: `Link copied — it opens this exact layout, all ${count}.${long}`, tone: long ? 'warning' : 'info' })
+    } catch {
+      // Clipboard access can be refused, e.g. without a user gesture. Putting
+      // the plan in the address bar still lets the link be copied by hand.
+      window.location.hash = new URL(url).hash
+      onNotice({ text: 'Link is in the address bar — copy it from there.', tone: 'warning' })
+    }
+  }
+
+  const onImportFile = async (file: File) => {
+    try {
+      const loaded = sanitizeLayout(JSON.parse(await file.text()))
+      if (!loaded) {
+        onNotice({ text: `“${file.name}” is not a layout file this version understands.`, tone: 'warning' })
+        return
+      }
+      store.loadLayout(loaded.layout)
+      onNotice({
+        text: loaded.dropped
+          ? `Imported ${loaded.layout.items.length} items. ${loaded.dropped} left out: no longer in the catalogue.`
+          : `Imported ${loaded.layout.items.length} items from “${file.name}”.`,
+        tone: loaded.dropped ? 'warning' : 'info',
+      })
+    } catch {
+      onNotice({ text: `Could not read “${file.name}”. Is it a layout JSON file?`, tone: 'warning' })
+    }
   }
 
   return (
@@ -107,6 +148,9 @@ export function Toolbar() {
       <div className="tool-group tool-group--end">
         <button className={panel === 'saves' ? 'on' : ''} onClick={() => setPanel(panel === 'saves' ? null : 'saves')}>
           Layouts
+        </button>
+        <button onClick={onShare} disabled={!items.length} title="Copy a link that opens this exact layout">
+          Share
         </button>
         <button onClick={() => exportPng(scene)} disabled={!items.length}>
           PNG
@@ -185,8 +229,21 @@ export function Toolbar() {
           </div>
           <div className="popover-row">
             <button onClick={() => exportJson(store.exportLayout(saveName.trim() || 'layout'), 'ikea-layout')} disabled={!items.length}>
-              Download layout as JSON
+              Download JSON
             </button>
+            <button onClick={() => fileRef.current?.click()}>Import JSON…</button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                // Reset first, so picking the same file twice fires again.
+                e.target.value = ''
+                if (file) void onImportFile(file)
+              }}
+            />
           </div>
           {saveNames.length === 0 && <p className="empty-note">No saved layouts yet.</p>}
           {saveNames.map((name) => (

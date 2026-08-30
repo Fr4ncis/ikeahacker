@@ -19,7 +19,8 @@ To refresh the product data, or to point it at a different IKEA market:
 npm run scrape
 ```
 
-`npm test` checks the projection, camera rotation and draw-ordering maths.
+`npm test` checks the projection, camera rotation and draw-ordering maths, and
+the layout serialisation that share links depend on.
 
 ## What it does
 
@@ -46,8 +47,22 @@ get a recessed interior with shelves, tables get a slab on four legs, and sofas
 get a seat, a back and arms.
 
 **Output.** The shopping list totals up what is in the room at current prices.
-Export the plan as a PNG, the list as CSV, or the layout as JSON. Layouts save
-to the browser, and whatever you had last is restored on load.
+Export the plan as a PNG, the list as CSV, or the layout as JSON.
+
+**Saving and sharing.** Whatever you had last is restored when you come back.
+Layouts can be named and saved, which keeps them in that browser. To move a
+plan somewhere else there are two routes:
+
+- **Share** copies a link with the whole plan packed into it. Opening that link
+  anywhere rebuilds the exact layout — same room, same pieces, same positions.
+  A typical room comes out around 150 characters and a 60-item plan under 2 KB.
+  The payload sits in the URL fragment, so it never reaches a server; there is
+  no backend and nothing is stored anywhere but the link itself.
+- **Download JSON** and **Import JSON…** round-trip a plan through a file.
+
+Because the catalogue is a snapshot, a plan can outlive an article. Anything a
+layout references that is no longer in the catalogue is dropped and counted, so
+furniture is never quietly missing — you get told how many and why.
 
 ### Keyboard
 
@@ -108,13 +123,14 @@ scraper/
   finish.ts      finish words to hex colours
 src/lib/
   iso.ts         isometric projection, camera rotation, footprints, draw order
+  layout.ts      validating a layout, and packing one into a share link
   render.ts      canvas painting, and the colour-coded pick pass for hit testing
   geometry.ts    a product's boxes: slab and legs, seat and back, or one box
   catalog.ts     loading and filtering the scraped data
   export.ts      PNG, CSV and JSON output
 src/components/  toolbar, catalogue sidebar, canvas, inspector
 src/state/       the room, what is in it, and browser persistence
-test/            geometry checks
+test/            geometry and serialisation checks
 public/          the scraped catalogue, fetched at startup
 ```
 
@@ -129,6 +145,20 @@ be nearer than a wardrobe at one end and further at the other, and no single
 key expresses that. Instead each pair that a separating axis can order becomes
 an edge, and the graph is sorted back to front; interpenetrating pieces, which
 have no correct answer, fall back to distance.
+
+### Share links
+
+A plan is encoded as a positional array rather than an object, article numbers
+travel as numbers rather than quoted strings, and rotation is a quarter-turn
+count. That is what keeps a link short enough to paste. IKEA article numbers are
+always eight digits, 379 of them in this catalogue starting with a zero, so
+decoding pads them back out — losing a leading zero would silently resolve to
+the wrong product, and there is a test for exactly that.
+
+Anything arriving from a link, a file or browser storage goes through the same
+validation. Malformed input is rejected outright; input that is merely unknown,
+such as a retired article, is dropped and counted. Positions are clamped rather
+than trusted, and a colour that is not a hex triple is ignored.
 
 ## Notes
 
