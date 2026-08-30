@@ -882,3 +882,80 @@ kbd {
 }
 
 .shape-help kbd { font-size: 10px; padding: 1px 4px; }
+
+/* ---------- Product preview ---------- */
+
+.preview {
+  position: fixed;
+  z-index: 60;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(28, 27, 25, 0.18);
+  overflow: hidden;
+  pointer-events: none;
+  animation: preview-in 0.14s ease-out;
+}
+
+@keyframes preview-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.preview-image {
+  height: 186px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+
+.preview-body { padding: 11px 13px 12px; }
+
+.preview-body h3 {
+  margin: 0 0 9px;
+  font-size: 14px;
+}
+
+.preview-body h3 em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.preview-facts {
+  margin: 0;
+  display: grid;
+  gap: 5px;
+  font-size: 11.5px;
+}
+
+.preview-facts > div {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.preview-facts dt { color: var(--muted); }
+.preview-facts dd { margin: 0; }
+
+.preview-price { font-weight: 600; font-size: 13px; }
+.preview-article { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+.preview-hint {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview { animation: none; }
+}

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "scrape": "tsx scraper/scrape.ts",
     "scrape:dry": "tsx scraper/scrape.ts --dry-run",
-    "test": "tsx test/geometry.test.ts && tsx test/polygon.test.ts && tsx test/layout.test.ts && tsx test/catalog.test.ts",
+    "test": "tsx test/geometry.test.ts && tsx test/polygon.test.ts && tsx test/animation.test.ts && tsx test/layout.test.ts && tsx test/catalog.test.ts",
     "test:worker": "tsx test/shortlink.test.ts"
   },
   "dependencies": {

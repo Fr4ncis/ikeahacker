@@ -20,8 +20,8 @@ npm run scrape
 ```
 
 `npm test` checks the projection, camera rotation and draw-ordering maths, the
-layout serialisation that share links depend on, and the catalogue grouping and
-filtering.
+layout serialisation that share links depend on, the catalogue grouping and
+filtering, and the animation transform.
 
 ## What it does
 
@@ -52,6 +52,12 @@ choice does not collapse its own list, so you can switch between sizes rather
 than having to clear first. One button restricts every dimension to what will
 physically go in the room.
 
+Hovering a product opens a detail card beside the list — large photo, full
+measurements, finish, price and article number. It opens to the side rather
+than over the list, so running down the products never covers the one you are
+pointing at, and it waits a moment before appearing so scanning does not make
+it flash.
+
 Right-click any product to open it on ikea.com, drop it straight into the room,
 or copy its article number.
 
@@ -64,6 +70,14 @@ a corner to remove it. Corners snap to 10 cm. The floor area is reported in m²,
 the grid is clipped to the outline, and anything left sitting outside the room
 is flagged — you can still park a piece over a notch while you work out where
 it goes.
+
+**Feel.** Pieces drop into the room with a little overshoot, fade out when
+removed, and a newly selected one pulses briefly before settling. Interface
+sounds are synthesised from oscillators rather than sampled, so there are no
+audio files in the bundle: a soft knock when something lands, a tick each time
+a drag crosses onto a new grid square, a rising pair on a rotate, a dull thump
+when two pieces clash. All of it is behind the **Sound** toggle, and the
+animation loop stops entirely once nothing is moving.
 
 **Placing things.** Click a product to drop it in the first free spot. Drag it
 around the floor on a 5 cm grid (hold <kbd>Alt</kbd> for 1 cm). Rotate in 90°
@@ -155,6 +169,8 @@ scraper/
 src/lib/
   iso.ts         isometric projection, camera rotation, footprints, draw order
   polygon.ts     floor-plan geometry: inside/outside, edges, shapes
+  sound.ts       synthesised interface sounds
+  easing.ts      timing curves for the canvas animations
   layout.ts      validating a layout, and packing one into a share link
   render.ts      canvas painting, and the colour-coded pick pass for hit testing
   geometry.ts    a product's boxes: slab and legs, seat and back, or one box
@@ -162,7 +178,7 @@ src/lib/
   export.ts      PNG, CSV and JSON output
 src/components/  toolbar, catalogue sidebar, canvas, inspector, menus
 src/state/       the room, what is in it, and browser persistence
-test/            geometry, floor plans, serialisation and catalogue checks
+test/            geometry, floor plans, animation, serialisation, catalogue
 public/          the scraped catalogue, fetched at startup
 ```
 

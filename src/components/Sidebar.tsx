@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CATEGORY_LABELS,
   DIMENSIONS,
@@ -17,6 +17,8 @@ import {
   type Filters,
   type GroupMatch,
 } from '../lib/catalog'
+import { Sound } from '../lib/sound'
+import { ProductPreview, type PreviewTarget } from './ProductPreview'
 import { usePlanner } from '../state/store'
 import type { CatalogItem } from '../lib/types'
 
@@ -29,11 +31,13 @@ function ProductCard({
   currency,
   onAdd,
   onContext,
+  onPreview,
 }: {
   match: GroupMatch
   currency: string
   onAdd: (item: CatalogItem) => void
   onContext: (item: CatalogItem, x: number, y: number) => void
+  onPreview: (item: CatalogItem | null, colours: number, element: HTMLElement | null) => void
 }) {
   const { group } = match
   const [picked, setPicked] = useState(match.variant)
@@ -54,6 +58,8 @@ function ProductCard({
         e.preventDefault()
         onContext(variant, e.clientX, e.clientY)
       }}
+      onPointerEnter={(e) => onPreview(variant, group.variants.length, e.currentTarget)}
+      onPointerLeave={() => onPreview(null, 0, null)}
     >
       <button className="item-main" onClick={() => onAdd(variant)} title={`Add ${group.name} ${group.type}`}>
         <span className="item-thumb" style={{ background: variant.color }}>
@@ -85,7 +91,11 @@ function ProductCard({
               style={{ background: v.color }}
               title={`${v.finish} — ${formatPrice(v.price, currency)}`}
               aria-label={v.finish}
-              onClick={() => setPicked(i)}
+              onClick={(e) => {
+                setPicked(i)
+                Sound.tick()
+                onPreview(v, group.variants.length, e.currentTarget.closest('.item-card'))
+              }}
             />
           ))}
           {hidden > 0 && (
@@ -136,17 +146,44 @@ function Facet({
   )
 }
 
+/** How long to keep pointing at a product before its details open. */
+const PREVIEW_DELAY_MS = 240
+
 export function Sidebar({
   onContext,
 }: {
   onContext: (item: CatalogItem, x: number, y: number) => void
 }) {
   const catalog = getCatalog()
+  const [preview, setPreview] = useState<PreviewTarget | null>(null)
+  const previewTimer = useRef<number | undefined>(undefined)
+  const asideRef = useRef<HTMLElement>(null)
   const addItem = usePlanner((s) => s.addItem)
   const room = usePlanner((s) => s.room)
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [open, setOpen] = useState<'system' | 'size' | null>(null)
   const [shown, setShown] = useState(PAGE)
+
+  /**
+   * Opens the detail panel after a short delay, so running the cursor down the
+   * list does not flash a panel for every product it passes.
+   */
+  const showPreview = (item: CatalogItem | null, colours: number, element: HTMLElement | null) => {
+    window.clearTimeout(previewTimer.current)
+    if (!item || !element) {
+      setPreview(null)
+      return
+    }
+    const card = element.getBoundingClientRect()
+    const aside = asideRef.current?.getBoundingClientRect()
+    previewTimer.current = window.setTimeout(
+      () => setPreview({ item, colours, y: card.top + card.height / 2, x: aside ? aside.right : card.right }),
+      PREVIEW_DELAY_MS,
+    )
+  }
+
+  // A pending preview must not open after the component is gone.
+  useEffect(() => () => window.clearTimeout(previewTimer.current), [])
 
   const update = (next: Filters) => {
     setFilters(next)
@@ -187,7 +224,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" ref={asideRef}>
       <div className="sidebar-head">
         <input
           className="search"
@@ -234,7 +271,10 @@ export function Sidebar({
               <button
                 key={s.id}
                 className={`pill ${filters.system === s.id ? 'pill--on' : ''}`}
-                onClick={() => patch({ system: s.id })}
+                onClick={() => {
+                  patch({ system: s.id })
+                  Sound.tick()
+                }}
                 title={s.blurb}
               >
                 {s.label}
@@ -267,7 +307,10 @@ export function Sidebar({
                         <button
                           key={o.value}
                           className={`pill pill--size ${chosen.includes(o.value) ? 'pill--on' : ''}`}
-                          onClick={() => update(toggleSize(filters, dimension, o.value))}
+                          onClick={() => {
+                            update(toggleSize(filters, dimension, o.value))
+                            Sound.tick()
+                          }}
                           title={`${o.count} product${o.count === 1 ? '' : 's'}`}
                         >
                           {o.value}
@@ -291,14 +334,18 @@ export function Sidebar({
         {total.toLocaleString()} product{total === 1 ? '' : 's'}
       </div>
 
-      <div className="item-list">
+      <div className="item-list" onScroll={() => showPreview(null, 0, null)}>
         {visible.map((m) => (
           <ProductCard
             key={m.group.key}
             match={m}
             currency={catalog.currency}
-            onAdd={(item) => addItem(item.id)}
+            onAdd={(item) => {
+              addItem(item.id)
+              Sound.place()
+            }}
             onContext={onContext}
+            onPreview={showPreview}
           />
         ))}
         {!visible.length && <p className="empty-note">Nothing matches. Try a shorter search or fewer sizes.</p>}
@@ -308,6 +355,8 @@ export function Sidebar({
           </button>
         )}
       </div>
+
+      <ProductPreview target={preview} currency={catalog.currency} />
     </aside>
   )
 }

@@ -1,4 +1,5 @@
 import { formatPrice, getCatalog, getItem } from '../lib/catalog'
+import { Sound } from '../lib/sound'
 import { usePlanner } from '../state/store'
 import type { PlacedItem } from '../lib/types'
 
@@ -76,9 +77,23 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
       </div>
 
       <div className="btn-row">
-        <button onClick={() => rotateItem(placed.uid, -90)}>↺ Rotate</button>
+        <button
+          onClick={() => {
+            rotateItem(placed.uid, -90)
+            Sound.rotate()
+          }}
+        >
+          ↺ Rotate
+        </button>
         <span className="rotation-readout">{placed.rotation}°</span>
-        <button onClick={() => rotateItem(placed.uid, 90)}>Rotate ↻</button>
+        <button
+          onClick={() => {
+            rotateItem(placed.uid, 90)
+            Sound.rotate()
+          }}
+        >
+          Rotate ↻
+        </button>
       </div>
 
       <div className="swatches">
@@ -94,15 +109,31 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
             key={c}
             className={`swatch ${placed.color === c ? 'swatch--on' : ''}`}
             style={{ background: c }}
-            onClick={() => updateItem(placed.uid, { color: c })}
+            onClick={() => {
+              updateItem(placed.uid, { color: c })
+              Sound.tick()
+            }}
             title="Recolour this piece"
           />
         ))}
       </div>
 
       <div className="btn-row">
-        <button onClick={() => duplicateItem(placed.uid)}>Duplicate</button>
-        <button className="danger" onClick={() => removeItem(placed.uid)}>
+        <button
+          onClick={() => {
+            duplicateItem(placed.uid)
+            Sound.place()
+          }}
+        >
+          Duplicate
+        </button>
+        <button
+          className="danger"
+          onClick={() => {
+            removeItem(placed.uid)
+            Sound.remove()
+          }}
+        >
           Remove
         </button>
       </div>

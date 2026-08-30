@@ -2,7 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { getItem } from '../lib/catalog'
 import { floorOutline, footprint, fromView, ISO_X, ISO_Y, overlaps, project, toView, unproject, viewExtent } from '../lib/iso'
 import { nearestEdge, type Point } from '../lib/polygon'
-import { fitZoom, HANDLE_RADIUS, makeTransform, pickColorToIndex, renderScene, type Scene } from '../lib/render'
+import { APPEAR_MS, VANISH_MS } from '../lib/easing'
+import { Sound } from '../lib/sound'
+import {
+  fitZoom,
+  HANDLE_RADIUS,
+  makeTransform,
+  pickColorToIndex,
+  renderScene,
+  SELECT_PULSE_MS,
+  type Ghost,
+  type Scene,
+} from '../lib/render'
 import { outsideRoom, SNAP_CM, usePlanner } from '../state/store'
 import type { CatalogItem, PlacedItem } from '../lib/types'
 
@@ -64,6 +75,66 @@ export function RoomCanvas({
   const collisions = useMemo(() => findCollisions(items), [items])
   const outside = useMemo(() => outsideRoom(items, room), [items, room])
 
+  // Pieces arriving and leaving are tracked here rather than in the store: it
+  // is presentation, and the store should not carry things that no longer
+  // exist. `frame` simply forces a repaint from the animation loop.
+  const bornRef = useRef(new Map<string, number>())
+  const ghostsRef = useRef<Ghost[]>([])
+  const previousRef = useRef<PlacedItem[]>([])
+  const selectedAtRef = useRef(0)
+  const [frame, setFrame] = useState(0)
+
+  useEffect(() => {
+    selectedAtRef.current = performance.now()
+    setFrame((f) => f + 1)
+  }, [selectedUid])
+
+  useEffect(() => {
+    const now = performance.now()
+    const before = previousRef.current
+    previousRef.current = items
+
+    const current = new Set(items.map((i) => i.uid))
+    for (const item of items) if (!bornRef.current.has(item.uid)) bornRef.current.set(item.uid, now)
+    for (const uid of [...bornRef.current.keys()]) if (!current.has(uid)) bornRef.current.delete(uid)
+
+    for (const gone of before) {
+      if (current.has(gone.uid)) continue
+      const cat = getItem(gone.itemId)
+      if (cat) ghostsRef.current.push({ placed: gone, cat, removedAt: now })
+    }
+    setFrame((f) => f + 1)
+  }, [items])
+
+  // Sound the clash the moment one appears, but not repeatedly while a piece
+  // is dragged around inside another.
+  const clashCount = useRef(0)
+  useEffect(() => {
+    if (collisions.size > clashCount.current) Sound.clash()
+    clashCount.current = collisions.size
+  }, [collisions])
+
+  // The loop runs only while something is moving, so an idle room costs nothing.
+  useEffect(() => {
+    let raf = 0
+    const tick = () => {
+      const now = performance.now()
+      const settling = [...bornRef.current.values()].some((t) => now - t < APPEAR_MS)
+      ghostsRef.current = ghostsRef.current.filter((g) => now - g.removedAt < VANISH_MS)
+      const pulsing = selectedUid !== null && now - selectedAtRef.current < SELECT_PULSE_MS
+      const busy = settling || pulsing || ghostsRef.current.length > 0
+
+      if (busy) {
+        setFrame((f) => f + 1)
+        raf = requestAnimationFrame(tick)
+      } else {
+        raf = 0
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [items, selectedUid])
+
   const scene: Scene = useMemo(
     () => ({
       room,
@@ -78,8 +149,13 @@ export function RoomCanvas({
       showLabels,
       editing: editingShape,
       activeCorner,
+      now: performance.now(),
+      bornAt: bornRef.current,
+      selectedAt: selectedAtRef.current,
+      ghosts: ghostsRef.current,
     }),
-    [room, items, camera, selectedUid, hoverUid, collisions, outside, showGrid, showLabels, editingShape, activeCorner],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `frame` drives repaints
+    [room, items, camera, selectedUid, hoverUid, collisions, outside, showGrid, showLabels, editingShape, activeCorner, frame],
   )
 
   // --- Sizing ---------------------------------------------------------------
@@ -248,6 +324,7 @@ export function RoomCanvas({
 
       const placed = items.find((i) => i.uid === uid)!
       const floor = toFloor(px, py, placed.z)
+      if (uid !== usePlanner.getState().selectedUid) Sound.pickUp()
       usePlanner.getState().select(uid)
       dragRef.current = { kind: 'item', uid, offsetX: floor.x - placed.x, offsetY: floor.y - placed.y }
     },
@@ -291,7 +368,12 @@ export function RoomCanvas({
       const snap = e.altKey ? 1 : SNAP_CM
       const x = Math.round((floor.x - drag.offsetX) / snap) * snap
       const y = Math.round((floor.y - drag.offsetY) / snap) * snap
-      if (x !== placed.x || y !== placed.y) usePlanner.getState().moveItem(drag.uid, x, y)
+      if (x !== placed.x || y !== placed.y) {
+        usePlanner.getState().moveItem(drag.uid, x, y)
+        // A tick each time the piece crosses onto a new grid square, which is
+        // what makes dragging feel like it has detents.
+        Sound.snap()
+      }
     },
     [localPoint, pickAt, toFloor],
   )
@@ -314,6 +396,7 @@ export function RoomCanvas({
 
   const endDrag = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     canvasRef.current?.releasePointerCapture(e.pointerId)
+    if (dragRef.current.kind === 'item') Sound.drop()
     dragRef.current = { kind: 'none' }
   }, [])
 
@@ -367,10 +450,12 @@ export function RoomCanvas({
           return
         case '[':
           store.rotateCamera(-1)
+          Sound.rotate()
           e.preventDefault()
           return
         case ']':
           store.rotateCamera(1)
+          Sound.rotate()
           e.preventDefault()
           return
       }
@@ -382,20 +467,25 @@ export function RoomCanvas({
         case 'Backspace':
         case 'Delete':
           store.removeItem(uid)
+          Sound.remove()
           break
         case 'r':
         case 'R':
           store.rotateItem(uid, e.shiftKey ? -90 : 90)
+          Sound.rotate()
           break
         case 'd':
         case 'D':
           store.duplicateItem(uid)
+          Sound.place()
           break
         case 'ArrowLeft':
           store.moveItem(uid, placed.x - nudge, placed.y)
+          Sound.snap()
           break
         case 'ArrowRight':
           store.moveItem(uid, placed.x + nudge, placed.y)
+          Sound.snap()
           break
         case 'ArrowUp':
           if (e.metaKey || e.ctrlKey) store.updateItem(uid, { z: placed.z + nudge })

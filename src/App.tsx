@@ -7,6 +7,7 @@ import { Sidebar } from './components/Sidebar'
 import { Toolbar } from './components/Toolbar'
 import { decodeLayout, layoutFromUrl } from './lib/layout'
 import { fetchPlan, shortIdFromUrl } from './lib/shortlink'
+import { Sound } from './lib/sound'
 import { restoreAutosave, startAutosave, usePlanner } from './state/store'
 import type { CatalogItem } from './lib/types'
 
@@ -80,7 +81,10 @@ export default function App() {
     (item: CatalogItem) => {
       void navigator.clipboard
         .writeText(item.id)
-        .then(() => setNotice({ text: `Copied article number ${item.id}.`, tone: 'info' }))
+        .then(() => {
+          Sound.confirm()
+          setNotice({ text: `Copied article number ${item.id}.`, tone: 'info' })
+        })
         .catch(() => setNotice({ text: `Article number is ${item.id}.`, tone: 'info' }))
     },
     [],
@@ -95,7 +99,13 @@ export default function App() {
         y,
         actions: [
           { label: 'Open on ikea.com ↗', onSelect: () => openOnIkea(item) },
-          { label: 'Add to room', onSelect: () => usePlanner.getState().addItem(item.id) },
+          {
+            label: 'Add to room',
+            onSelect: () => {
+              usePlanner.getState().addItem(item.id)
+              Sound.place()
+            },
+          },
           { label: 'Copy article number', onSelect: () => copyArticle(item) },
         ],
       })
@@ -113,10 +123,29 @@ export default function App() {
         y,
         actions: [
           { label: 'Open on ikea.com ↗', onSelect: () => openOnIkea(item) },
-          { label: 'Duplicate', onSelect: () => store.duplicateItem(uid) },
-          { label: 'Rotate 90°', onSelect: () => store.rotateItem(uid, 90) },
+          {
+            label: 'Duplicate',
+            onSelect: () => {
+              store.duplicateItem(uid)
+              Sound.place()
+            },
+          },
+          {
+            label: 'Rotate 90°',
+            onSelect: () => {
+              store.rotateItem(uid, 90)
+              Sound.rotate()
+            },
+          },
           { label: 'Copy article number', onSelect: () => copyArticle(item) },
-          { label: 'Remove', onSelect: () => store.removeItem(uid), danger: true },
+          {
+            label: 'Remove',
+            onSelect: () => {
+              store.removeItem(uid)
+              Sound.remove()
+            },
+            danger: true,
+          },
         ],
       })
     },

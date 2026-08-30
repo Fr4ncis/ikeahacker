@@ -8,6 +8,7 @@
  * on screen.
  */
 import { FACE_LIGHT, mix, readableOn, shade } from './color'
+import { APPEAR_MS, clamp01, easeOutBack, easeOutCubic, lerp, VANISH_MS } from './easing'
 import { subBoxes, localToWorld, type SubBox } from './geometry'
 import type { Point as Vertex } from './polygon'
 import {
@@ -39,8 +40,23 @@ export interface Scene {
   /** When editing the floor plan, the corner under the cursor, if any. */
   editing: boolean
   activeCorner: number | null
+  /** Animation clock, in milliseconds. Omit to draw everything settled. */
+  now?: number
+  /** uid -> the moment that piece was added, for the drop-in. */
+  bornAt?: Map<string, number>
+  /** When the current selection was made, so the outline can pulse and settle. */
+  selectedAt?: number
+  /** Pieces taken out of the room, kept just long enough to fade. */
+  ghosts?: Ghost[]
   showGrid: boolean
   showLabels: boolean
+}
+
+/** A removed piece, still drawn while it fades out. */
+export interface Ghost {
+  placed: PlacedItem
+  cat: CatalogItem
+  removedAt: number
 }
 
 export interface Viewport {
@@ -250,6 +266,30 @@ function toDrawable(
   }
 }
 
+/**
+ * Scales a sub-box about its parent's footprint centre and lifts it, so a
+ * whole piece grows and falls as one rather than each part animating alone.
+ */
+export function liftAndScale(
+  box: DrawableBox,
+  bounds: { vx0: number; vy0: number; vx1: number; vy1: number },
+  scale: number,
+  lift: number,
+): DrawableBox {
+  const cx = (bounds.vx0 + bounds.vx1) / 2
+  const cy = (bounds.vy0 + bounds.vy1) / 2
+  const about = (v: number, centre: number) => lerp(centre, v, scale)
+  return {
+    ...box,
+    vx0: about(box.vx0, cx),
+    vx1: about(box.vx1, cx),
+    vy0: about(box.vy0, cy),
+    vy1: about(box.vy1, cy),
+    z0: box.z0 * scale + lift,
+    z1: box.z1 * scale + lift,
+  }
+}
+
 function drawBox(
   ctx: CanvasRenderingContext2D,
   t: Transform,
@@ -259,6 +299,7 @@ function drawBox(
   cat: CatalogItem | null,
   outline: string | null,
   flat: boolean,
+  outlinePulse = 1,
 ) {
   const { vx0, vy0, vx1, vy1, z0, z1 } = box
   const p = (vx: number, vy: number, z: number): [number, number] => {
@@ -292,6 +333,7 @@ function drawBox(
 
   if (outline) {
     ctx.save()
+    ctx.globalAlpha *= outlinePulse
     ctx.strokeStyle = outline
     ctx.lineWidth = 2
     for (const q of [top, left, right]) {
@@ -435,17 +477,42 @@ export function renderScene(
       if (!cat) return null
       const fp = footprint(placed, cat.width, cat.depth)
       const bounds = viewBounds(fp, scene.room, scene.camera.rotation)
-      return { placed, cat, bounds, index }
+      return { placed, cat, bounds, index, removedAt: undefined as number | undefined }
     })
     .filter((e): e is NonNullable<typeof e> => e !== null)
 
+  // Pieces on their way out are drawn alongside the rest so they keep their
+  // place in the stack while they fade, rather than popping to the front.
+  if (mode === 'display' && scene.ghosts?.length) {
+    for (const ghost of scene.ghosts) {
+      const fp = footprint(ghost.placed, ghost.cat.width, ghost.cat.depth)
+      resolved.push({
+        placed: ghost.placed,
+        cat: ghost.cat,
+        bounds: viewBounds(fp, scene.room, scene.camera.rotation),
+        index: -1,
+        removedAt: ghost.removedAt,
+      })
+    }
+  }
+
+  const now = scene.now ?? Infinity
   const entries = paintOrder(resolved, (e) => ({
     ...e.bounds,
     z0: e.placed.z,
     z1: e.placed.z + e.cat.height,
-  }))
+  })).map((e) => {
+    const born = scene.bornAt?.get(e.placed.uid)
+    return {
+      ...e,
+      // 0 while dropping in, 1 once settled.
+      appear: born === undefined ? 1 : clamp01((now - born) / APPEAR_MS),
+      // 1 while present, falling to 0 as a removed piece fades.
+      fade: e.removedAt === undefined ? 1 : 1 - clamp01((now - e.removedAt) / VANISH_MS),
+    }
+  })
 
-  for (const { placed, cat, bounds, index } of entries) {
+  for (const { placed, cat, bounds, index, appear, fade } of entries) {
     const front = frontSide(placed.rotation, scene.camera.rotation)
     const selected = placed.uid === scene.selectedUid
     const hovered = placed.uid === scene.hoverUid
@@ -459,13 +526,27 @@ export function renderScene(
       else if (hovered && !selected) color = mix(color, '#ffffff', 0.12)
     }
 
-    if (mode === 'display' && placed.z === 0) drawShadow(ctx, t, bounds)
+    // A piece drops the last few centimetres and springs slightly as it lands,
+    // which reads as weight; a removed one shrinks back the way it came.
+    const settled = appear >= 1 && fade >= 1
+    const grow = fade < 1 ? easeOutCubic(fade) : easeOutBack(appear)
+    const lift = (1 - easeOutCubic(appear)) * 26
+
+    if (mode === 'display' && placed.z === 0 && fade > 0) {
+      ctx.save()
+      ctx.globalAlpha = fade * clamp01(appear * 1.4)
+      drawShadow(ctx, t, bounds)
+      ctx.restore()
+    }
+
+    ctx.save()
+    if (!settled) ctx.globalAlpha = fade
 
     // Sub-boxes need their own back-to-front pass, e.g. a sofa's back before its seat.
     const boxes = paintOrder(
       subBoxes(cat).map((sub) => toDrawable(sub, placed, cat, scene.room, scene.camera.rotation)),
       (b) => b,
-    )
+    ).map((box) => (settled ? box : liftAndScale(box, bounds, grow, lift)))
 
     for (const box of boxes) {
       drawBox(
@@ -477,10 +558,13 @@ export function renderScene(
         mode === 'pick' ? null : cat,
         mode === 'display' ? (selected ? ACCENT : clashing ? WARNING : null) : null,
         mode === 'pick',
+        selected ? selectionPulse(scene) : 1,
       )
     }
 
-    if (mode === 'display' && scene.showLabels && t.scale > 0.9) {
+    ctx.restore()
+
+    if (mode === 'display' && scene.showLabels && t.scale > 0.9 && settled) {
       const centre = t.toScreen((bounds.vx0 + bounds.vx1) / 2, (bounds.vy0 + bounds.vy1) / 2, placed.z + cat.height)
       const wide = (bounds.vx1 - bounds.vx0) * t.scale
       if (wide > 34) {
@@ -501,6 +585,22 @@ export function renderScene(
 
   ctx.restore()
   return t
+}
+
+/** How long a freshly selected piece pulses before settling to a steady outline. */
+export const SELECT_PULSE_MS = 900
+
+/**
+ * A selected piece flashes briefly so it is easy to find, then settles. A
+ * permanent pulse would mean a permanent animation loop and an outline that
+ * never stops moving while you work.
+ */
+function selectionPulse(scene: Scene): number {
+  if (scene.now === undefined || scene.selectedAt === undefined) return 1
+  const age = scene.now - scene.selectedAt
+  if (age >= SELECT_PULSE_MS) return 1
+  const remaining = 1 - age / SELECT_PULSE_MS
+  return 1 - 0.45 * remaining * (0.5 + 0.5 * Math.sin(age / 55))
 }
 
 /** Radius of a floor-plan corner handle, in screen pixels. */

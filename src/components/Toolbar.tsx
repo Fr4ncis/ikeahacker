@@ -4,6 +4,7 @@ import { exportCsv, exportJson, exportPng } from '../lib/export'
 import type { Scene } from '../lib/render'
 import { encodeLayout, sanitizeLayout, shareUrl } from '../lib/layout'
 import { shortLinksAvailable, shortUrl, storePlan, ShortLinkError } from '../lib/shortlink'
+import { setSoundEnabled, Sound, soundEnabled } from '../lib/sound'
 import { area } from '../lib/polygon'
 import { floorOutline } from '../lib/iso'
 import {
@@ -56,6 +57,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
   const [saves, setSaves] = useState<SavedLayouts>(() => readSaves())
   const [panel, setPanel] = useState<'room' | 'saves' | null>(null)
   const [saveName, setSaveName] = useState('')
+  const [sound, setSound] = useState(soundEnabled)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const scene: Scene = useMemo(
@@ -83,6 +85,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
     const name = saveName.trim() || `Plan ${saveNames.length + 1}`
     setSaves(writeSave(store.exportLayout(name)))
     setSaveName('')
+    Sound.confirm()
     onNotice({ text: `Saved “${name}” to this browser.`, tone: 'info' })
   }
 
@@ -118,6 +121,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
 
     try {
       await navigator.clipboard.writeText(url)
+      Sound.confirm()
       onNotice({ text: `Link copied — it opens this exact layout, all ${count}.${note}`, tone: note ? 'warning' : 'info' })
     } catch {
       // Clipboard access can be refused, e.g. without a user gesture. Putting
@@ -131,10 +135,12 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
     try {
       const loaded = sanitizeLayout(JSON.parse(await file.text()))
       if (!loaded) {
+        Sound.reject()
         onNotice({ text: `“${file.name}” is not a layout file this version understands.`, tone: 'warning' })
         return
       }
       store.loadLayout(loaded.layout)
+      Sound.confirm()
       onNotice({
         text: loaded.dropped
           ? `Imported ${loaded.layout.items.length} items. ${loaded.dropped} left out: no longer in the catalogue.`
@@ -142,6 +148,7 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
         tone: loaded.dropped ? 'warning' : 'info',
       })
     } catch {
+      Sound.reject()
       onNotice({ text: `Could not read “${file.name}”. Is it a layout JSON file?`, tone: 'warning' })
     }
   }
@@ -163,10 +170,22 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
           Room {room.width}×{room.depth} cm
           {room.outline ? ` · ${(area(floorOutline(room)) / 10000).toFixed(1)} m²` : ''}
         </button>
-        <button onClick={() => store.rotateCamera(-1)} title="Turn the room left ([)">
+        <button
+          onClick={() => {
+            store.rotateCamera(-1)
+            Sound.rotate()
+          }}
+          title="Turn the room left ([)"
+        >
           ↺
         </button>
-        <button onClick={() => store.rotateCamera(1)} title="Turn the room right (])">
+        <button
+          onClick={() => {
+            store.rotateCamera(1)
+            Sound.rotate()
+          }}
+          title="Turn the room right (])"
+        >
           ↻
         </button>
         <button onClick={() => store.setCamera({ zoom: 0, panX: 0, panY: 0 })} title="Reset the view">
@@ -180,6 +199,21 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
         </button>
         <button className={showLabels ? 'on' : ''} onClick={store.toggleLabels}>
           Labels
+        </button>
+        <button
+          className={sound ? 'on' : ''}
+          onClick={() => {
+            const next = !sound
+            setSoundEnabled(next)
+            setSound(next)
+            // Play the confirmation only when turning sound on, so the toggle
+            // demonstrates itself rather than making noise on the way out.
+            if (next) Sound.confirm()
+          }}
+          title={sound ? 'Mute the interface sounds' : 'Turn the interface sounds on'}
+          aria-pressed={sound}
+        >
+          {sound ? 'Sound' : 'Muted'}
         </button>
       </div>
 
@@ -200,7 +234,10 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
           className="danger"
           disabled={!items.length}
           onClick={() => {
-            if (window.confirm(`Remove all ${items.length} items from the room?`)) store.clearRoom()
+            if (window.confirm(`Remove all ${items.length} items from the room?`)) {
+              store.clearRoom()
+              Sound.remove()
+            }
           }}
         >
           Clear
@@ -229,7 +266,13 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
               {editingShape ? 'Done editing shape' : 'Edit floor shape'}
             </button>
             {SHAPE_PRESETS.map((preset) => (
-              <button key={preset.label} onClick={() => store.setOutline(preset.make(room.width, room.depth))}>
+              <button
+                key={preset.label}
+                onClick={() => {
+                  store.setOutline(preset.make(room.width, room.depth))
+                  Sound.tick()
+                }}
+              >
                 {preset.label}
               </button>
             ))}
