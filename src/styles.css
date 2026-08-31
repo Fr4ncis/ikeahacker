@@ -571,15 +571,19 @@ kbd {
   height: 42px;
   border-radius: 5px;
   overflow: hidden;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
 }
 
+/* IKEA shoots products on white. Blending that into the finish colour turned a
+   black cabinet into a black square, so photos get a plain neutral ground and
+   the colour is shown as a swatch instead. */
 .item-thumb img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  mix-blend-mode: multiply;
 }
 
 .item-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -702,7 +706,6 @@ kbd {
   object-fit: contain;
   border-radius: 6px;
   background: var(--panel-2);
-  mix-blend-mode: multiply;
 }
 
 .inspector-hero h3 { margin: 0; font-size: 14px; }
@@ -902,18 +905,23 @@ kbd {
   to   { opacity: 1; transform: none; }
 }
 
+/* Flex, not grid: an auto grid row sizes to the image's intrinsic height, so
+   `max-height: 100%` resolved against 266px rather than the 186px box and the
+   photo spilled over the product's own details. */
 .preview-image {
   height: 186px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--panel-2);
   border-bottom: 1px solid var(--line);
 }
 
 .preview-image img {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  mix-blend-mode: multiply;
 }
 
 .preview-body { padding: 11px 13px 12px; }
@@ -944,6 +952,20 @@ kbd {
 
 .preview-facts dt { color: var(--muted); }
 .preview-facts dd { margin: 0; }
+
+.preview-finish {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-chip {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
 
 .preview-price { font-weight: 600; font-size: 13px; }
 .preview-article { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }

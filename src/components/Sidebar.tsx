@@ -62,7 +62,7 @@ function ProductCard({
       onPointerLeave={() => onPreview(null, 0, null)}
     >
       <button className="item-main" onClick={() => onAdd(variant)} title={`Add ${group.name} ${group.type}`}>
-        <span className="item-thumb" style={{ background: variant.color }}>
+        <span className="item-thumb" style={variant.imageUrl ? undefined : { background: variant.color }}>
           {variant.imageUrl ? <img src={variant.imageUrl} alt="" loading="lazy" /> : null}
         </span>
         <span className="item-body">
@@ -184,6 +184,14 @@ export function Sidebar({
 
   // A pending preview must not open after the component is gone.
   useEffect(() => () => window.clearTimeout(previewTimer.current), [])
+
+  // The list can change under a stationary cursor -- typing in the search box,
+  // or picking a filter -- and no pointerenter fires for whatever slides into
+  // place, so the panel would go on describing a product that has gone.
+  useEffect(() => {
+    window.clearTimeout(previewTimer.current)
+    setPreview(null)
+  }, [filters])
 
   const update = (next: Filters) => {
     setFilters(next)

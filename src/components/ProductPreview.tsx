@@ -38,8 +38,9 @@ export function ProductPreview({ target, currency }: { target: PreviewTarget | n
 
   return (
     <div ref={ref} className="preview" style={{ left: target.x + 10, top, width: WIDTH }} role="tooltip">
-      <div className="preview-image" style={{ background: item.color }}>
-        {item.imageUrl ? <img src={item.imageUrl} alt="" /> : null}
+      {/* The finish colour only stands in when there is no photograph. */}
+      <div className="preview-image" style={item.imageUrl ? undefined : { background: item.color }}>
+        {item.imageUrl ? <img src={item.imageUrl} alt={`${item.name} ${item.type}, ${item.finish}`} /> : null}
       </div>
 
       <div className="preview-body">
@@ -56,7 +57,10 @@ export function ProductPreview({ target, currency }: { target: PreviewTarget | n
           </div>
           <div>
             <dt>Finish</dt>
-            <dd>{item.finish !== 'unspecified' ? item.finish : 'not listed'}</dd>
+            <dd className="preview-finish">
+              <span className="preview-chip" style={{ background: item.color }} />
+              {item.finish !== 'unspecified' ? item.finish : 'not listed'}
+            </dd>
           </div>
           <div>
             <dt>Price</dt>
