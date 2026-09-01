@@ -18,6 +18,8 @@
   },
   "include": [
     "main.ts",
+    "preload.ts",
+    "update.ts",
     "smoke.ts"
   ]
 }

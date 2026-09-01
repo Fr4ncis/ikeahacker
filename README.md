@@ -340,6 +340,35 @@ Sharing still produces web links. A link to `app://ikeahacker` would open on
 nobody else's machine, so `VITE_PUBLIC_URL` is baked in at build time and Share
 builds links against the published site instead of the page it is running on.
 
+### Updating
+
+The app checks this repository's releases a few seconds after it starts, and
+again whenever you ask it to from **Help → Check for updates…**. A check that
+finds nothing says nothing: the only thing that appears on its own is an actual
+new version, in a bar in the corner offering the release notes and the
+download.
+
+Downloads are verified. GitHub publishes a sha256 for every release asset, and
+a file whose bytes do not match it is thrown away rather than kept, because the
+next thing that happens to that file is that somebody runs it. Only the
+architecture actually being run is offered, so an Intel Mac is told there is no
+download for it rather than being handed 90 MB of arm64 it cannot open.
+
+Installing is where being unsigned shows. Windows can finish by itself: its
+installer replaces the app and relaunches it, so the button says "Install and
+restart". macOS cannot -- Squirrel refuses to swap an app it has no signature
+for -- so the disk image is opened, ready to drag across, and the button says
+"Open the installer" instead of pretending. Linux gets the AppImage shown in a
+file manager, because replacing a running AppImage underneath itself is a good
+way to lose it.
+
+All of it runs in the main process. The page never touches the network for
+this, so its content policy stays as narrow as it was, and the only thing the
+shell hands the page is `window.desktopUpdates` -- five methods and a
+subscription, no file access and no general message channel. That object is
+also how the planner knows it is the desktop app: on the web it is not there,
+and the banner renders nothing.
+
 ## The plan service (optional)
 
 A Cloudflare Worker in `worker/` turns share links into short ids. The app

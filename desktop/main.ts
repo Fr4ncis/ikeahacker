@@ -18,12 +18,13 @@
  * before it is kept and only takes effect at the next launch, so a bad
  * network never delays or breaks a start.
  */
-import { app, BrowserWindow, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, session, shell } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { protocol, net } from 'electron'
+import { checkForUpdate, downloadAsset, installUpdate, type UpdateState } from './update'
 
 // Packaged, the manifest sits at the root of the asar; in development it is
 // this package's own, one level up from the compiled shell. `app.getAppPath()`
@@ -36,6 +37,7 @@ const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
   version: string
   productName?: string
   publicSite: string
+  repository: string
 }
 
 /** Where the same app lives on the web. Shared links point here, and so does the catalogue refresh. */
@@ -181,7 +183,12 @@ export function createWindow(show = true): BrowserWindow {
     minHeight: 620,
     title: manifest.productName ?? 'IKEA Hacker',
     backgroundColor: '#f4f2ee',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: join(__dirname, 'preload.js'),
+    },
   })
 
   // ikea.com opens in the browser. Nothing navigates the app window itself:
@@ -216,6 +223,8 @@ function buildMenu() {
       {
         role: 'help',
         submenu: [
+          { label: 'Check for updates…', click: () => void runCheck(true) },
+          { type: 'separator' },
           {
             label: 'Open the web version',
             click: () => void shell.openExternal(PUBLIC_SITE),
@@ -226,12 +235,99 @@ function buildMenu() {
   )
 }
 
+/**
+ * Update state, and the one place it is kept.
+ *
+ * The window is told every time it changes rather than asked, so a download
+ * that started before the page was ready still shows up: the state is replayed
+ * to whoever asks for it.
+ */
+let updateState: UpdateState = { status: 'idle' }
+
+function setUpdateState(next: UpdateState) {
+  updateState = next
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('update:state', next)
+  }
+}
+
+const currentInfo = () =>
+  updateState.status === 'available' || updateState.status === 'downloading' || updateState.status === 'ready'
+    ? updateState.info
+    : null
+
+/**
+ * Looks for a newer release.
+ *
+ * A check nobody asked for stays quiet unless it finds something: the app
+ * starting should not report that the network is down. A check from the menu
+ * or from the page says what happened either way.
+ */
+async function runCheck(manual: boolean): Promise<UpdateState> {
+  if (updateState.status === 'downloading') return updateState
+  if (manual) setUpdateState({ status: 'checking' })
+  try {
+    const info = await checkForUpdate(manifest.repository)
+    const next: UpdateState = info
+      ? { status: 'available', info }
+      : { status: 'current', version: app.getVersion() }
+    if (info || manual) setUpdateState(next)
+    return next
+  } catch (err) {
+    const failed: UpdateState = {
+      status: 'failed',
+      message: err instanceof Error ? err.message : 'Could not check for updates',
+    }
+    if (manual) setUpdateState(failed)
+    return failed
+  }
+}
+
+function wireUpdates() {
+  ipcMain.handle('update:version', () => app.getVersion())
+  ipcMain.handle('update:check', () => runCheck(true))
+
+  ipcMain.handle('update:download', async () => {
+    const info = currentInfo()
+    if (!info?.asset) return updateState
+    setUpdateState({ status: 'downloading', info, received: 0, total: info.asset.size })
+    try {
+      const file = await downloadAsset(info.asset, (received, total) =>
+        setUpdateState({ status: 'downloading', info, received, total }),
+      )
+      setUpdateState({ status: 'ready', info, file, manual: process.platform !== 'win32' })
+    } catch (err) {
+      setUpdateState({ status: 'failed', message: err instanceof Error ? err.message : 'Download failed' })
+    }
+    return updateState
+  })
+
+  ipcMain.handle('update:install', async () => {
+    if (updateState.status !== 'ready') return updateState
+    try {
+      return await installUpdate(updateState.file)
+    } catch (err) {
+      setUpdateState({ status: 'failed', message: err instanceof Error ? err.message : 'Could not open the installer' })
+      return updateState
+    }
+  })
+
+  ipcMain.handle('update:page', async () => {
+    const info = currentInfo()
+    await shell.openExternal(info?.url ?? `${manifest.repository.replace(/\.git$/, '')}/releases/latest`)
+  })
+
+  // Replayed to a window that arrives after a check has already happened.
+  ipcMain.handle('update:state', () => updateState)
+}
+
 /** Everything that has to be in place before a window can load. */
 export function configure() {
   serveApp()
   // Nothing is loaded from the network into the page, so nothing needs to be
   // permitted: no camera, no location, no notifications.
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
+  wireUpdates()
   buildMenu()
 }
 
@@ -241,6 +337,8 @@ if (require.main === module) {
     configure()
     createWindow()
     void refreshCatalogue()
+    // After the window, and quietly: a launch should not wait on GitHub.
+    setTimeout(() => void runCheck(false), 4000)
   })
 
   app.on('window-all-closed', () => {

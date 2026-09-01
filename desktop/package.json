@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "The room planner as a desktop app",
+  "repository": "https://github.com/Fr4ncis/ikeahacker",
   "main": "out/main.js",
   "publicSite": "https://fr4ncis.github.io/ikeahacker/",
   "scripts": {

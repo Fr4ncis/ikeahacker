@@ -87,6 +87,16 @@ protocol handler prefers that copy; it takes effect at the next launch. Link bui
 goes through `linkBase()` in `src/lib/layout.ts`, which returns the current URL on the
 web and the configured public site off it: a shared `app://` link opens for nobody.
 
+**Updates are the one thing the shell tells the planner about.** `desktop/update.ts`
+reads the repository's latest release, compares it to `app.getVersion()`, and picks the
+asset for this platform *and* architecture -- never one naming a different arch, since an
+Intel Mac cannot open the arm64 dmg. Downloads are checked against the sha256 GitHub
+publishes per asset. Installing is a handover, not an install: unsigned apps cannot
+replace themselves on macOS, so only Windows runs its installer and quits. The renderer
+side is `src/lib/updates.ts` and `UpdateBanner`, which render nothing when
+`window.desktopUpdates` is absent, which is how the same build serves the web. The state
+types are written out in both places on purpose; `src/` must not import from `desktop/`.
+
 **Untrusted input has one door.** Layouts from a share link, an imported file, or
 `localStorage` all pass through `sanitizeLayout` in `src/lib/layout.ts`. Malformed input
 is rejected; merely unknown input (a retired article number) is dropped and counted so

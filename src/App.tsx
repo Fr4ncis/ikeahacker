@@ -5,6 +5,7 @@ import { Notice } from './components/Notice'
 import { RoomCanvas } from './components/RoomCanvas'
 import { Sidebar } from './components/Sidebar'
 import { Toolbar } from './components/Toolbar'
+import { UpdateBanner } from './components/UpdateBanner'
 import { decodeLayout, layoutFromUrl } from './lib/layout'
 import { fetchPlan, shortIdFromUrl } from './lib/shortlink'
 import { Sound } from './lib/sound'
@@ -161,6 +162,7 @@ export default function App() {
         <Inspector />
       </main>
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
+      <UpdateBanner />
       <ContextMenu target={menu} onClose={() => setMenu(null)} />
     </div>
   )
