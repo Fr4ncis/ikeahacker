@@ -40,6 +40,15 @@ const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
   repository: string
 }
 
+/**
+ * Pinned rather than inferred, because everything the app keeps hangs off it:
+ * `userData` is the saved layouts, the cached catalogue and the downloads.
+ * Electron names an unpackaged app after its entry script's directory, so
+ * without this the shell and its own smoke test disagree about where the data
+ * lives. The value matches the packaged productName, so nothing moves.
+ */
+app.setName(manifest.productName ?? 'IKEA Hacker')
+
 /** Where the same app lives on the web. Shared links point here, and so does the catalogue refresh. */
 export const PUBLIC_SITE = manifest.publicSite
 

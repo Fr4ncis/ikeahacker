@@ -10,10 +10,10 @@
  * which the script does for you.
  */
 import { app, BrowserWindow, net } from 'electron'
-import { writeFileSync } from 'node:fs'
+import { statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { configure, createWindow, PUBLIC_SITE, refreshCatalogue } from './main'
-import { compareVersions, pickUpdate, repoSlug } from './update'
+import { compareVersions, downloadAsset, pickUpdate, repoSlug } from './update'
 
 let failures = 0
 function check(label: string, ok: boolean, detail = '') {
@@ -263,4 +263,42 @@ async function checkUpdates() {
     pickUpdate('0.0.1', release, 'darwin', 'x64')?.asset === null,
     JSON.stringify(pickUpdate('0.0.1', release, 'darwin', 'x64')?.asset),
   )
+
+  // Behind a flag because it pulls the whole 90 MB installer. Run it with
+  // SMOKE_DOWNLOAD=1 when the download or the hash check has been touched:
+  // it is the only thing that proves the bytes are actually verified.
+  if (!process.env.SMOKE_DOWNLOAD) {
+    console.log('      skipped the real download: set SMOKE_DOWNLOAD=1 to include it')
+    return
+  }
+
+  const asset = pickUpdate('0.0.1', release)?.asset
+  if (!asset) {
+    check('there is an asset for this machine to download', false)
+    return
+  }
+  try {
+    let last = 0
+    const file = await downloadAsset(asset, (received, total) => {
+      const percent = Math.floor((received / total) * 10) * 10
+      if (percent > last) {
+        last = percent
+        process.stdout.write(`      downloading ${percent}%\r`)
+      }
+    })
+    const size = statSync(file).size
+    check(
+      `the real installer downloads and matches its published hash (${(size / 1048576).toFixed(1)} MB)`,
+      size === asset.size,
+      `${size} vs ${asset.size}`,
+    )
+
+    // And a hash that does not match must not leave a file behind to run.
+    await downloadAsset({ ...asset, sha256: 'f'.repeat(64) }, () => {}).then(
+      () => check('a download that fails its hash is rejected', false, 'it was accepted'),
+      (err: Error) => check('a download that fails its hash is rejected', /did not match the hash/.test(err.message), err.message),
+    )
+  } catch (err) {
+    check('the real installer downloads', false, err instanceof Error ? err.message : String(err))
+  }
 }
