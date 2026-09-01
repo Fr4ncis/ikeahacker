@@ -49,17 +49,33 @@ jobs:
             desktop/release/*.exe
             desktop/release/*.AppImage
 
-      # Nothing here is signed, so macOS and Windows will both warn the first
-      # time. Signing needs an Apple Developer account and a Windows
-      # certificate; without them the installers still work, they just have to
-      # be opened past the warning.
-      - name: Attach the installers to the release
-        if: startsWith(github.ref, 'refs/tags/v')
+
+  # Publishing is its own job so that the three builds do not race each other
+  # to create the release, and so that one platform failing still publishes the
+  # others rather than losing the lot.
+  #
+  # Nothing here is signed, so macOS and Windows both warn on a first launch.
+  # Signing needs an Apple Developer account and a Windows certificate; without
+  # them the installers work, they just have to be opened past the warning.
+  release:
+    needs: build
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+
+      - name: Publish the installers
         shell: bash
-        run: |
-          shopt -s nullglob
-          files=(desktop/release/*.dmg desktop/release/*.exe desktop/release/*.AppImage)
-          [ ${#files[@]} -gt 0 ] || { echo "::error::nothing to upload"; exit 1; }
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob globstar
+          files=(installers/**/*.dmg installers/**/*.exe installers/**/*.AppImage)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::no installers were built"; exit 1; }
+          printf 'publishing %s\n' "${files[@]}"
+          gh release view "$GITHUB_REF_NAME" --repo "$REPO" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$REPO" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" --repo "$REPO" "${files[@]}" --clobber
