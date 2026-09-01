@@ -12,7 +12,7 @@
 import { app, BrowserWindow, net } from 'electron'
 import { statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { configure, createWindow, PUBLIC_SITE, refreshCatalogue } from './main'
+import { configure, createWindow, PUBLIC_SITE, refreshCatalogue, runCheck } from './main'
 import { compareVersions, downloadAsset, pickUpdate, repoSlug } from './update'
 
 let failures = 0
@@ -169,6 +169,22 @@ app.whenReady().then(async () => {
     const shot = join(__dirname, 'smoke.png')
     writeFileSync(shot, image.toPNG())
     console.log(`      window captured to ${shot}`)
+
+    // The whole chain, with nothing faked: ask GitHub, and read what the page
+    // ends up showing. What it says depends on what is published, so this
+    // accepts either answer -- what it is checking is that a real check
+    // reaches the banner at all.
+    const real = await runCheck(true)
+    await new Promise((r) => setTimeout(r, 400))
+    const said = (await window.webContents.executeJavaScript(
+      `document.querySelector('.update-bar')?.textContent ?? ''`,
+    )) as string
+    check(
+      `a real check reaches the page (${real.status})`,
+      (real.status === 'current' && said.includes('is the latest')) ||
+        (real.status === 'available' && said.includes('is available')),
+      `${real.status} -> ${JSON.stringify(said)}`,
+    )
 
     // Once downloaded, the button has to say what pressing it will do, which
     // is not the same thing on a platform that cannot replace the app itself.

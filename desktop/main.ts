@@ -272,7 +272,7 @@ const currentInfo = () =>
  * starting should not report that the network is down. A check from the menu
  * or from the page says what happened either way.
  */
-async function runCheck(manual: boolean): Promise<UpdateState> {
+export async function runCheck(manual: boolean): Promise<UpdateState> {
   if (updateState.status === 'downloading') return updateState
   if (manual) setUpdateState({ status: 'checking' })
   try {
