@@ -315,9 +315,21 @@ npm run dist       # installers into desktop/release
 a `v*` release, or running the **Desktop app** workflow by hand, builds all
 three platforms in CI and attaches the installers to the release.
 
-Nothing is signed. macOS will refuse the first launch until you right-click the
-app and choose Open, and Windows SmartScreen will want More info → Run anyway.
-Signing needs an Apple Developer account and a Windows certificate.
+The macOS app is ad-hoc signed, which is as far as you can go without paying
+Apple. That is not cosmetic: a bundle left with the signature Electron ships
+with is *broken* rather than merely unsigned once packaging has renamed it, and
+macOS refuses to start it at all. Signed this way it starts, after the usual
+refusal for software from an unidentified developer -- open **System Settings →
+Privacy & Security** and choose **Open Anyway**, or clear the download flag
+yourself:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/IKEA Hacker.app"
+```
+
+Windows SmartScreen wants **More info → Run anyway**. Removing either prompt
+means notarising with an Apple Developer account and signing with a Windows
+certificate.
 
 Two things are arranged differently from the web build, both in
 `desktop/main.ts`:

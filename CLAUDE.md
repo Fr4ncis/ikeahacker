@@ -31,7 +31,12 @@ wrangler commands from inside that directory. So does the Electron shell in `des
 loads, `npm run dist` packages installers. `npm run dist` and `npm start` both build the
 planner first, with `VITE_BASE=./` and `VITE_PUBLIC_URL` set from the `publicSite` field
 in `desktop/package.json`. The smoke test is not part of `npm test`, because it needs
-Electron installed.
+Electron installed; `SMOKE_DOWNLOAD=1 npm run smoke` adds the real 90 MB download and
+hash check, which is the only thing that proves the update verification does anything.
+
+Releases are cut by tagging `v*`, which is the only trigger that publishes installers;
+the version in the tag must match `version` in `desktop/package.json`, since that is what
+electron-builder names the files after and what the updater compares against.
 
 Build-time env: `VITE_BASE` (GitHub Pages subpath, set by the deploy workflow),
 `VITE_API_URL` (short-link service; unset is a supported configuration), `VITE_PUBLIC_URL`
@@ -86,6 +91,19 @@ published site into `userData`, behind the same guard as the re-scrape workflow,
 protocol handler prefers that copy; it takes effect at the next launch. Link building
 goes through `linkBase()` in `src/lib/layout.ts`, which returns the current URL on the
 web and the configured public site off it: a shared `app://` link opens for nobody.
+
+**The macOS build must be signed, even with no certificate.** Electron arrives
+linker-signed, and packaging renames the bundle and adds resources, which leaves that
+signature describing something that no longer exists. macOS rejects a broken signature
+much harder than a missing one: v0.1.0 shipped that way and would not start, failing with
+"code has no resources but signature indicates they must be present". `desktop/sign.mjs`
+runs as an `afterPack` hook and ad-hoc signs the bundle, then verifies it, so a bad
+signature fails the build instead of a download. Do not remove that hook, and do not test
+a macOS build only by running what you just compiled: an unquarantined local build runs
+even when the signature is broken. Copy it out of the dmg and set
+`com.apple.quarantine` on it, which is what a download has. Ad-hoc signing does not avoid
+the "unidentified developer" prompt; only notarisation does, and that needs a paid
+account.
 
 **Updates are the one thing the shell tells the planner about.** `desktop/update.ts`
 reads the repository's latest release, compares it to `app.getVersion()`, and picks the
