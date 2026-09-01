@@ -73,6 +73,49 @@ app.whenReady().then(async () => {
     )) as number
     check(`the catalogue loads over the app scheme (${products.toLocaleString()} products)`, products > 500)
 
+    // Every shop, not just the first. The second catalogue is a separate fetch
+    // over the app scheme, so a path or handler that only knows about
+    // catalog.json loses a whole retailer and the planner still looks fine.
+    const shops = (await window.webContents.executeJavaScript(
+      `[...document.querySelectorAll('.chips--shops .chip')].map((c) => c.textContent.trim()).join(',')`,
+    )) as string
+    check('the second shop reaches the window too', shops.includes('Dunelm'), shops || '(no shop chips)')
+
+    // A thumbnail from every shop has to survive the content security policy.
+    // A blocked image says nothing on a packaged build, so each host is asked
+    // directly. The list has to be filtered to a shop first, or the visible
+    // thumbnails are all from whichever one happens to sort first.
+    const images = (await window.webContents.executeJavaScript(
+      `(async () => {
+         const chips = [...document.querySelectorAll('.chips--shops .chip')]
+         const byHost = new Map()
+         for (const shop of chips) {
+           if (shop.textContent.trim() === 'Every shop') continue
+           shop.click()
+           await new Promise((r) => setTimeout(r, 250))
+           const img = document.querySelector('.item-thumb img')
+           // A real product photo, so a 404 cannot be mistaken for a refusal.
+           if (img) byHost.set(new URL(img.src).host, img.src)
+         }
+         // Leave the list as it was found, or the checks below search a
+         // catalogue filtered down to one shop and find nothing.
+         chips.find((c) => c.textContent.trim() === 'Every shop')?.click()
+         await new Promise((r) => setTimeout(r, 250))
+
+         const results = await Promise.all(
+           [...byHost].map(([host, src]) => new Promise((done) => {
+             const probe = new Image()
+             probe.onload = () => done(host + ':ok')
+             probe.onerror = () => done(host + ':BLOCKED')
+             setTimeout(() => done(host + ':timeout'), 8000)
+             probe.src = src
+           })),
+         )
+         return results.join(', ')
+       })()`,
+    )) as string
+    check('product photos are not blocked for any shop', images.length > 0 && !images.includes('BLOCKED'), images)
+
     const origin = (await window.webContents.executeJavaScript(`window.location.origin`)) as string
     check('the page has a stable origin, so saved layouts survive an update', origin === 'app://ikeahacker', origin)
 

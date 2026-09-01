@@ -62,8 +62,15 @@ const rendererRoot = app.isPackaged
   ? join(app.getAppPath(), 'renderer')
   : join(__dirname, '..', '..', 'dist')
 
+/**
+ * The catalogues the planner asks for, one per shop. Each is refreshed and
+ * cached separately, because each is scraped by its own pass and published as
+ * its own file; `src/lib/catalog.ts` merges them in the renderer.
+ */
+const CATALOGUES = ['catalog.json', 'catalog-dunelm.json']
+
 /** Where a refreshed catalogue is kept. Outside the app, which is read-only once installed. */
-const cachedCatalogue = () => join(app.getPath('userData'), 'catalog.json')
+const cachedCatalogue = (name: string) => join(app.getPath('userData'), name)
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -79,15 +86,22 @@ const MIME: Record<string, string> = {
 }
 
 /**
- * Product photos come from ikea.com; everything else is local. Written here
- * rather than as a meta tag in the HTML because the web build is served from
- * a different origin and configures its plan service at build time.
+ * Product photos come from the shops the catalogue was scraped from; everything
+ * else is local. Written here rather than as a meta tag in the HTML because the
+ * web build is served from a different origin and configures its plan service
+ * at build time.
+ *
+ * A shop added to `CATALOGUES` needs its image host added here too, or its
+ * products show up in the planner with every thumbnail blank and nothing in the
+ * console to say why on a packaged build.
  */
+const IMAGE_HOSTS = ['https://www.ikea.com', 'https://images.dunelm.com']
+
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' https://www.ikea.com data: blob:",
+  `img-src 'self' ${IMAGE_HOSTS.join(' ')} data: blob:`,
   "connect-src 'self'",
   "font-src 'self'",
   "object-src 'none'",
@@ -115,7 +129,7 @@ function serveApp() {
       return new Response('Forbidden', { status: 403 })
     }
 
-    const source = relative === 'catalog.json' ? await newestCatalogue(file) : file
+    const source = CATALOGUES.includes(relative) ? await newestCatalogue(relative, file) : file
     // Read through Electron's own fetch so the 2 MB catalogue streams rather
     // than being buffered, then re-dress it: the file handler guesses at
     // content types and never sets a policy header.
@@ -130,9 +144,9 @@ function serveApp() {
 }
 
 /** The downloaded catalogue if there is a usable one, otherwise the copy that shipped. */
-async function newestCatalogue(bundled: string): Promise<string> {
+async function newestCatalogue(name: string, bundled: string): Promise<string> {
   try {
-    const cached = cachedCatalogue()
+    const cached = cachedCatalogue(name)
     const text = await readFile(cached, 'utf8')
     return productCount(text) > 0 ? cached : bundled
   } catch {
@@ -150,35 +164,51 @@ const productCount = (text: string): number => {
 }
 
 /**
- * Fetches the published catalogue and keeps it if it looks whole.
+ * Fetches every published catalogue and keeps the ones that look whole,
+ * reporting what happened to each. One shop being unreachable does not stop
+ * the others.
+ */
+export async function refreshCatalogue(): Promise<string> {
+  const outcomes = await Promise.all(CATALOGUES.map(refreshOne))
+  return outcomes.map(([name, said]) => `${name}: ${said}`).join('; ')
+}
+
+/**
+ * Refreshes one shop's catalogue.
  *
  * The guard is the one the nightly re-scrape workflow applies before it
  * publishes: under 500 products, or under 70% of what we already have, means
- * IKEA changed something rather than that the catalogue shrank. Keeping such
- * a result would silently strip articles out of saved layouts.
+ * the shop changed something rather than that the catalogue shrank. Keeping
+ * such a result would silently strip articles out of saved layouts. Both
+ * catalogues run to thousands of products, so the flat floor is generous; a
+ * genuinely small shop would need its own.
+ *
+ * A shop the published site does not carry yet simply reports its 404 and
+ * leaves the bundled copy in place, which is what happens between adding a
+ * scrape here and the first deploy that publishes it.
  */
-export async function refreshCatalogue(): Promise<string> {
-  const bundled = productCount(await readFile(join(rendererRoot, 'catalog.json'), 'utf8').catch(() => ''))
-  const have = Math.max(bundled, productCount(await readFile(cachedCatalogue(), 'utf8').catch(() => '')))
+async function refreshOne(name: string): Promise<[string, string]> {
+  const bundled = productCount(await readFile(join(rendererRoot, name), 'utf8').catch(() => ''))
+  const have = Math.max(bundled, productCount(await readFile(cachedCatalogue(name), 'utf8').catch(() => '')))
 
   let text: string
   try {
-    const res = await net.fetch(new URL('catalog.json', PUBLIC_SITE).toString())
-    if (!res.ok) return `the site returned ${res.status}`
+    const res = await net.fetch(new URL(name, PUBLIC_SITE).toString())
+    if (!res.ok) return [name, `the site returned ${res.status}`]
     text = await res.text()
   } catch {
-    return 'could not reach the site'
+    return [name, 'could not reach the site']
   }
 
   const count = productCount(text)
-  if (count < 500) return `only ${count} products, so it was not kept`
+  if (count < 500) return [name, `only ${count} products, so it was not kept`]
   if (have > 0 && count < Math.floor((have * 70) / 100)) {
-    return `${count} products is under 70% of the ${have} already here, so it was not kept`
+    return [name, `${count} products is under 70% of the ${have} already here, so it was not kept`]
   }
-  if (count === have) return `no change, still ${count} products`
+  if (count === have) return [name, `no change, still ${count} products`]
 
-  await writeFile(cachedCatalogue(), text, 'utf8')
-  return `updated to ${count} products, from the next launch`
+  await writeFile(cachedCatalogue(name), text, 'utf8')
+  return [name, `updated to ${count} products, from the next launch`]
 }
 
 export function createWindow(show = true): BrowserWindow {
