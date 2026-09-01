@@ -34,6 +34,11 @@ in `desktop/package.json`. The smoke test is not part of `npm test`, because it 
 Electron installed; `SMOKE_DOWNLOAD=1 npm run smoke` adds the real 90 MB download and
 hash check, which is the only thing that proves the update verification does anything.
 
+`build.publish` is null on purpose: `desktop/package.json` carries a `repository` field
+for the updater, and electron-builder takes that as an instruction to upload to GitHub
+itself on a tagged CI build, which fails for want of a token. The workflow's own release
+job does the publishing.
+
 Releases are cut by tagging `v*`, which is the only trigger that publishes installers;
 the version in the tag must match `version` in `desktop/package.json`, since that is what
 electron-builder names the files after and what the updater compares against.

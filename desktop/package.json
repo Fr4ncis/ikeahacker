@@ -22,6 +22,7 @@
     "appId": "com.fr4ncis.ikeahacker",
     "productName": "IKEA Hacker",
     "copyright": "Plans rooms with scraped IKEA product data. Not affiliated with IKEA.",
+    "publish": null,
     "directories": {
       "output": "release",
       "buildResources": "build"
