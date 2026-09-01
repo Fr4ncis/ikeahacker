@@ -2,9 +2,16 @@
  * Turns a catalog item into the boxes we actually draw.
  *
  * A wardrobe is one box, but a desk drawn as a solid block looks wrong, so
- * tables get a slab and four legs and sofas get a seat plus a back. Sub-boxes
- * are expressed in the item's own local frame: `lx` runs across its width,
- * `ly` from its back (0) to its front (depth), `lz` upwards.
+ * tables get a slab and four legs, chairs get a seat and a back, and an open
+ * bookcase gets real sides and shelves with a panel behind them. Sub-boxes are
+ * expressed in the item's own local frame: `lx` runs across its width, `ly`
+ * from its back (0) to its front (depth), `lz` upwards.
+ *
+ * Everything here is driven by what IKEA publishes -- the product type and the
+ * three measurements -- so a piece sold on legs is drawn on legs. Every
+ * archetype falls back to the plain box when the numbers are too small for its
+ * parts to make sense, which is what keeps an armrest or a pull-out tray from
+ * being drawn as furniture.
  */
 import type { CatalogItem, PlacedItem } from './types'
 
@@ -23,23 +30,39 @@ export interface SubBox {
 
 const LEG = 6
 const SLAB = 4
+/** Thickness of a carcass panel: IKEA's boards are 15 to 20 mm, rounded up to read at this scale. */
+const PANEL = 3
 const SEAT_HEIGHT = 42
 const BACK_DEPTH = 22
 const ARM_WIDTH = 18
 
+const box = (w: number, d: number, h: number): SubBox => ({
+  lx0: 0,
+  lx1: w,
+  ly0: 0,
+  ly1: d,
+  lz0: 0,
+  lz1: h,
+  detailFront: true,
+})
+
+/** Posts at the four corners, from the floor up to `top`. */
+function legs(w: number, d: number, top: number, thickness = LEG): SubBox[] {
+  const lw = Math.min(thickness, w / 4)
+  const ld = Math.min(thickness, d / 4)
+  return [
+    { lx0: 0, lx1: lw, ly0: 0, ly1: ld, lz0: 0, lz1: top, tint: 0.9 },
+    { lx0: w - lw, lx1: w, ly0: 0, ly1: ld, lz0: 0, lz1: top, tint: 0.9 },
+    { lx0: 0, lx1: lw, ly0: d - ld, ly1: d, lz0: 0, lz1: top, tint: 0.9 },
+    { lx0: w - lw, lx1: w, ly0: d - ld, ly1: d, lz0: 0, lz1: top, tint: 0.9 },
+  ]
+}
+
 /** Legs are only worth drawing when the piece is tall enough to have them. */
 function tableParts(w: number, d: number, h: number): SubBox[] {
-  if (h < 25) return [{ lx0: 0, lx1: w, ly0: 0, ly1: d, lz0: 0, lz1: h }]
+  if (h < 25) return [box(w, d, h)]
   const top = Math.max(h - SLAB, 0)
-  const legW = Math.min(LEG, w / 4)
-  const legD = Math.min(LEG, d / 4)
-  return [
-    { lx0: 0, lx1: w, ly0: 0, ly1: d, lz0: top, lz1: h, detailFront: true },
-    { lx0: 0, lx1: legW, ly0: 0, ly1: legD, lz0: 0, lz1: top, tint: 0.9 },
-    { lx0: w - legW, lx1: w, ly0: 0, ly1: legD, lz0: 0, lz1: top, tint: 0.9 },
-    { lx0: 0, lx1: legW, ly0: d - legD, ly1: d, lz0: 0, lz1: top, tint: 0.9 },
-    { lx0: w - legW, lx1: w, ly0: d - legD, ly1: d, lz0: 0, lz1: top, tint: 0.9 },
-  ]
+  return [{ lx0: 0, lx1: w, ly0: 0, ly1: d, lz0: top, lz1: h, detailFront: true }, ...legs(w, d, top)]
 }
 
 /** A seat slab, a back and two arms reads as a sofa from any angle. */
@@ -58,25 +81,125 @@ function sofaParts(w: number, d: number, h: number): SubBox[] {
   ]
 }
 
-/** A bed is a low frame with a headboard at the back. */
+/**
+ * A dining chair or a stool: four legs, a seat, and a back panel for the ones
+ * that have one. Drawn as a solid block a chair looks like a bedside table.
+ */
+function chairParts(w: number, d: number, h: number, back: boolean): SubBox[] {
+  const seatTop = back ? Math.min(Math.max(h * 0.5, 40), h - 20) : h
+  if (seatTop <= SLAB + 4) return [box(w, d, h)]
+
+  const parts = legs(w, d, seatTop - SLAB, 5)
+  parts.push({ lx0: 0, lx1: w, ly0: 0, ly1: d, lz0: seatTop - SLAB, lz1: seatTop, tint: 1.05, detailFront: true })
+  if (back) {
+    const thick = Math.max(2, Math.min(PANEL + 1, d / 6))
+    // Set in from the sides, so the back reads as a rest rather than a wall.
+    const cheek = Math.min(w * 0.08, 4)
+    parts.push({ lx0: cheek, lx1: w - cheek, ly0: 0, ly1: thick, lz0: seatTop, lz1: h, tint: 0.95 })
+  }
+  return parts
+}
+
+/** A bed is a frame with a mattress set into it and a headboard at the back. */
 function bedParts(w: number, d: number, h: number): SubBox[] {
   const head = Math.min(10, d * 0.08)
-  const mattressTop = Math.max(h * 0.75, 25)
+  // Clamped to the piece: "bed" also catches an under-bed storage box 24 cm
+  // tall, and a mattress standing proud of the item it belongs to would break
+  // both hit-testing and the collision check.
+  const frame = Math.min(Math.max(h * 0.45, 18), h)
+  const mattressTop = Math.min(Math.max(h * 0.75, 25), h)
+  if (mattressTop <= frame + 2) return [box(w, d, h)]
+
+  const inset = Math.min(4, w * 0.03)
   return [
     { lx0: 0, lx1: w, ly0: 0, ly1: head, lz0: 0, lz1: h, tint: 0.95 },
-    { lx0: 0, lx1: w, ly0: head, ly1: d, lz0: 0, lz1: mattressTop, tint: 1.06, detailFront: true },
+    { lx0: 0, lx1: w, ly0: head, ly1: d, lz0: 0, lz1: frame, tint: 0.92 },
+    // The mattress, set in on three sides so the frame shows around it.
+    {
+      lx0: inset,
+      lx1: w - inset,
+      ly0: head,
+      ly1: d - inset,
+      lz0: frame,
+      lz1: mattressTop,
+      tint: 1.1,
+      detailFront: true,
+    },
   ]
 }
+
+/**
+ * An open carcass: two sides, a top and a bottom, a panel across the back and
+ * the shelves themselves. What you see through the front is the back panel,
+ * which is why it is there -- without it a bookcase would be a hole.
+ */
+function shelfParts(w: number, d: number, h: number): SubBox[] {
+  if (w < 25 || d < 12 || h < 30) return [box(w, d, h)]
+
+  const t = Math.max(2, Math.min(PANEL, w / 8, d / 6, h / 10))
+  const back = Math.max(1.5, Math.min(2.5, d / 8))
+  const parts: SubBox[] = [
+    { lx0: 0, lx1: t, ly0: 0, ly1: d, lz0: 0, lz1: h },
+    { lx0: w - t, lx1: w, ly0: 0, ly1: d, lz0: 0, lz1: h },
+    { lx0: t, lx1: w - t, ly0: 0, ly1: d, lz0: h - t, lz1: h },
+    { lx0: t, lx1: w - t, ly0: 0, ly1: d, lz0: 0, lz1: t },
+    // Darker, because it sits in the shade of the carcass around it.
+    { lx0: t, lx1: w - t, ly0: 0, ly1: back, lz0: t, lz1: h - t, tint: 0.78 },
+  ]
+
+  // Roughly a shelf every 35 cm, the same spacing the flat front detail used.
+  const bays = Math.max(1, Math.min(7, Math.round(h / 35)))
+  const inner = h - 2 * t
+  for (let i = 1; i < bays; i++) {
+    const z = t + (inner * i) / bays
+    parts.push({
+      lx0: t,
+      lx1: w - t,
+      ly0: back,
+      ly1: d,
+      lz0: z - t / 2,
+      lz1: z + t / 2,
+      tint: 0.97,
+    })
+  }
+  return parts
+}
+
+/** A carcass standing clear of the floor on an underframe or feet. */
+function raisedParts(w: number, d: number, h: number, clearance: number, open: boolean): SubBox[] {
+  const lift = Math.min(clearance, h * 0.3)
+  if (lift < 3) return open ? shelfParts(w, d, h) : [box(w, d, h)]
+
+  const body = open ? shelfParts(w, d, h - lift) : [box(w, d, h - lift)]
+  return [...body.map((b) => ({ ...b, lz0: b.lz0 + lift, lz1: b.lz1 + lift })), ...legs(w, d, lift, 5)]
+}
+
+/** Sold on an underframe, on legs, on feet or on castors, and drawn that way. */
+const RAISED = /underframe|with legs|w legs|with feet|w feet|castors|trestle/
+const UPHOLSTERED = /sofa|armchair|chaise|corner section|footstool|pouffe|ottoman|rocking-chair|day-?bed/
+// Not "bench": in these systems that is nearly always a TV bench, which is a
+// cabinet, and drawing one on chair legs would be worse than a plain box.
+const SEATING = /\bchair\b|\bstool\b|highchair/
+const BACKLESS = /stool|footstool|pouffe/
+const BED = /\bbed\b|bedstead|divan|mattress|bunk/
 
 export function subBoxes(item: CatalogItem): SubBox[] {
   const { width: w, depth: d, height: h, type, face } = item
   const t = type.toLowerCase()
 
   if (face === 'surface') return tableParts(w, d, h)
-  if (/\bbed\b|bedstead|divan|mattress/.test(t)) return bedParts(w, d, h)
-  if (/sofa|armchair|chaise|corner section|footstool|pouffe/.test(t) && w >= 60) return sofaParts(w, d, h)
+  if (BED.test(t)) return bedParts(w, d, h)
+  if (UPHOLSTERED.test(t) && w >= 60) return sofaParts(w, d, h)
+  // An armchair too narrow for arms is still a chair with a back, not a block.
+  if (UPHOLSTERED.test(t) || SEATING.test(t)) {
+    if (h >= 35 && h <= 140 && w <= 110) return chairParts(w, d, h, !BACKLESS.test(t) && h >= 60)
+  }
 
-  return [{ lx0: 0, lx1: w, ly0: 0, ly1: d, lz0: 0, lz1: h, detailFront: true }]
+  const open = face === 'shelves'
+  if (RAISED.test(t)) return raisedParts(w, d, h, 14, open)
+  if (open) return shelfParts(w, d, h)
+
+  return [box(w, d, h)]
 }
 
 /**

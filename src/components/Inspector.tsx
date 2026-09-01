@@ -1,4 +1,4 @@
-import { formatPrice, getCatalog, getItem } from '../lib/catalog'
+import { formatPrice, getCatalog, getItem, groupOf } from '../lib/catalog'
 import { Sound } from '../lib/sound'
 import { usePlanner } from '../state/store'
 import type { PlacedItem } from '../lib/types'
@@ -38,6 +38,7 @@ function NumberField({
 
 function SelectedItem({ placed }: { placed: PlacedItem }) {
   const cat = getItem(placed.itemId)
+  const group = groupOf(placed.itemId)
   const room = usePlanner((s) => s.room)
   const { updateItem, rotateItem, removeItem, duplicateItem } = usePlanner.getState()
 
@@ -96,26 +97,57 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
         </button>
       </div>
 
-      <div className="swatches">
-        <button
-          className={`swatch swatch--reset ${!placed.color ? 'swatch--on' : ''}`}
-          onClick={() => updateItem(placed.uid, { color: undefined })}
-          title="Use the product's own finish"
-        >
-          ✕
-        </button>
-        {SWATCHES.map((c) => (
+      {/* The finishes IKEA actually sells this piece in. Picking one swaps the
+          article, so the price and the link follow the colour, and it drops any
+          paint over the top rather than leaving the change invisible. */}
+      {group && group.variants.length > 1 && (
+        <div className="swatch-group">
+          <span className="swatch-label">
+            Finish <em>{group.variants.length} colours</em>
+          </span>
+          <div className="swatches">
+            {group.variants.map((v) => (
+              <button
+                key={v.id}
+                className={`swatch ${v.id === placed.itemId && !placed.color ? 'swatch--on' : ''}`}
+                style={{ background: v.color }}
+                onClick={() => {
+                  updateItem(placed.uid, { itemId: v.id, color: undefined })
+                  Sound.tick()
+                }}
+                title={`${v.finish} — ${formatPrice(v.price, v.currency)}`}
+                aria-label={v.finish}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="swatch-group">
+        <span className="swatch-label">
+          Paint <em>this piece only</em>
+        </span>
+        <div className="swatches">
           <button
-            key={c}
-            className={`swatch ${placed.color === c ? 'swatch--on' : ''}`}
-            style={{ background: c }}
-            onClick={() => {
-              updateItem(placed.uid, { color: c })
-              Sound.tick()
-            }}
-            title="Recolour this piece"
-          />
-        ))}
+            className={`swatch swatch--reset ${!placed.color ? 'swatch--on' : ''}`}
+            onClick={() => updateItem(placed.uid, { color: undefined })}
+            title="Use the product's own finish"
+          >
+            ✕
+          </button>
+          {SWATCHES.map((c) => (
+            <button
+              key={c}
+              className={`swatch ${placed.color === c ? 'swatch--on' : ''}`}
+              style={{ background: c }}
+              onClick={() => {
+                updateItem(placed.uid, { color: c })
+                Sound.tick()
+              }}
+              title="Recolour this piece"
+            />
+          ))}
+        </div>
       </div>
 
       <div className="btn-row">

@@ -20,8 +20,8 @@ npm run scrape
 ```
 
 `npm test` checks the projection, camera rotation and draw-ordering maths, the
-layout serialisation that share links depend on, the catalogue grouping and
-filtering, and the animation transform.
+shapes each product type is drawn as, the layout serialisation that share links
+depend on, the catalogue grouping and filtering, and the animation transform.
 
 ## What it does
 
@@ -100,10 +100,22 @@ duplicate it. Right-click something in the room for the same menu plus
 duplicate, rotate and remove. Overlapping items are flagged. Turn the camera in
 quarter steps to check the layout from each corner.
 
-Pieces are drawn as shaded isometric boxes with front detailing that follows the
-product type: doors get a split and handles, chests get drawer lines, bookcases
-get a recessed interior with shelves, tables get a slab on four legs, and sofas
-get a seat, a back and arms.
+**Colour.** A selected piece lists the finishes IKEA actually sells it in, and
+picking one changes the piece in the room: the article, the price, the shopping
+list and the ikea.com link all follow the colour. The same swatches on the
+product in the catalogue do the same thing, so a colourway is a change to what
+is in front of you rather than a decision about the next thing you add — the
+card for the piece you have selected is marked, since that is the one the
+swatches act on. Underneath there is a row of paint colours for a piece you
+mean to spray, which is an override of the finish rather than a real product.
+
+Pieces are drawn as shaded isometric boxes with a shape that follows the product
+type, and with front detailing on top: doors get a split and handles, chests get
+drawer lines. Tables and desks get a slab on four legs; sofas get a seat, a back
+and arms; chairs and stools get legs, a seat and a backrest; a bed gets a
+headboard and a mattress set into its frame; a bookcase gets two sides, a top
+and bottom, shelves and a panel behind them; and anything IKEA sells on an
+underframe, on feet or on castors stands clear of the floor on them.
 
 **Output.** The shopping list totals up what is in the room at current prices.
 Export the plan as a PNG, the list as CSV, or the layout as JSON.
@@ -231,6 +243,30 @@ any size filter, not the contextual list. The contextual list moves under a
 selection — take widths 100 to 148, then choose a height, and some of those
 widths no longer exist — and describing the selection against a list it no
 longer sits in turns a run back into "100, 102 +27 more".
+
+### Shapes
+
+An item is drawn as a handful of boxes in its own local frame, chosen from its
+product type and its three measurements — the only shape information a scrape
+gives you. A wardrobe really is a box, but a desk drawn as a solid block looks
+like a plinth, so the archetypes exist to stop the room reading as a stack of
+crates.
+
+Every archetype falls back to the plain box when the numbers are too small for
+its parts to mean anything, which is what keeps an armrest or a pull-out tray
+from being drawn as furniture, and each is guarded by what it is *not*: "bench"
+in these systems is nearly always a TV bench, which is a cabinet, so it stays a
+box. No part may leave the published width, depth and height, because
+hit-testing and the collision check work off those; there is a test that sweeps
+the whole catalogue for it, and it caught a mattress standing 1 cm proud of an
+under-bed storage box.
+
+An open carcass looks solid from every angle without any notion of an interior,
+because the painter draws the top, the +x face and the +y face of every box.
+Those are exactly the faces that bound the cavity when you look into it, so the
+back panel, the shelf tops and the inner faces of the sides are all painted
+already, and the pick pass paints the same geometry: a click through the front
+of a bookcase lands on the bookcase.
 
 ### Walls of an irregular room
 

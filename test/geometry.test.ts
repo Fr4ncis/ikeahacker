@@ -6,9 +6,12 @@
  * These are the parts where a mistake is invisible in a screenshot until
  * something is subtly in the wrong place, so they are worth asserting.
  */
+import { readFileSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { footprint, fromView, paintOrder, project, toView, unproject, viewBounds, type ViewBox } from '../src/lib/iso.ts'
-import { localToWorld } from '../src/lib/geometry.ts'
-import type { PlacedItem, Room } from '../src/lib/types.ts'
+import { localToWorld, subBoxes } from '../src/lib/geometry.ts'
+import type { Catalog, CatalogItem, PlacedItem, Room } from '../src/lib/types.ts'
 
 let failures = 0
 function check(label: string, ok: boolean, detail = '') {
@@ -227,6 +230,120 @@ check(
     }
     return true
   })(),
+)
+
+// --- Item shapes ------------------------------------------------------------
+
+/**
+ * A piece is drawn as a handful of sub-boxes, and hit-testing, collision and
+ * the shopping list all work off the published measurements, so no part may
+ * wander outside them. The archetype checks below pin down the dispatch, which
+ * is a pile of regular expressions over 397 distinct product types and would
+ * otherwise be easy to break by accident.
+ */
+const here = dirname(fileURLToPath(import.meta.url))
+const products = (JSON.parse(readFileSync(resolve(here, '../public/catalog.json'), 'utf8')) as Catalog).items
+
+const piece = (over: Partial<CatalogItem>): CatalogItem =>
+  ({
+    id: '00000000',
+    system: 'X',
+    systemLabel: 'X',
+    name: 'X',
+    type: 'Cabinet',
+    finish: 'white',
+    color: '#fff',
+    width: 80,
+    depth: 40,
+    height: 100,
+    measureText: '',
+    price: null,
+    currency: 'GBP',
+    imageUrl: '',
+    productUrl: '',
+    category: 'shelving',
+    face: 'plain',
+    ...over,
+  }) as CatalogItem
+
+check(
+  `every part of all ${products.length} products stays inside the published size`,
+  products.every((item) =>
+    subBoxes(item).every(
+      (b) =>
+        b.lx0 >= -1e-9 && b.lx1 <= item.width + 1e-9 &&
+        b.ly0 >= -1e-9 && b.ly1 <= item.depth + 1e-9 &&
+        b.lz0 >= -1e-9 && b.lz1 <= item.height + 1e-9,
+    ),
+  ),
+)
+
+check(
+  'no part is inside out or flat',
+  products.every((item) => subBoxes(item).every((b) => b.lx1 > b.lx0 && b.ly1 > b.ly0 && b.lz1 > b.lz0)),
+)
+
+check(
+  // Two would paint the door lines twice, in two places.
+  'at most one part of a piece carries the front detailing',
+  products.every((item) => subBoxes(item).filter((b) => b.detailFront).length <= 1),
+)
+
+check(
+  'every piece touches the floor somewhere',
+  products.every((item) => subBoxes(item).some((b) => b.lz0 < 1e-9)),
+)
+
+check(
+  'a chair is drawn with legs, a seat and a back',
+  (() => {
+    const parts = subBoxes(piece({ type: 'Chair', width: 46, depth: 51, height: 80, face: 'plain' }))
+    const feet = parts.filter((b) => b.lz0 === 0)
+    const seat = parts.find((b) => b.detailFront)
+    return feet.length === 4 && !!seat && seat.lz0 > 20 && parts.length === 6
+  })(),
+)
+
+check(
+  'a stool has no back',
+  subBoxes(piece({ type: 'Stool', width: 40, depth: 40, height: 63 })).length === 5,
+)
+
+check(
+  // "Bench" reads as seating but in these systems it is nearly always a TV
+  // bench, and putting a cabinet on chair legs looks worse than a plain box.
+  'a TV bench is left as a cabinet',
+  subBoxes(piece({ type: 'TV bench', width: 180, depth: 41, height: 47, face: 'drawers' })).length === 1,
+)
+
+check(
+  'an open bookcase becomes a carcass with shelves behind a back panel',
+  (() => {
+    const parts = subBoxes(piece({ type: 'Bookcase', width: 80, depth: 28, height: 202, face: 'shelves' }))
+    const backPanel = parts.find((b) => b.ly1 < 4 && b.lz1 > 100)
+    // Two sides, a top, a bottom, a back and the shelves between them.
+    return parts.length >= 9 && !!backPanel && parts.every((b) => !b.detailFront)
+  })(),
+)
+
+check(
+  'a piece sold on castors stands clear of the floor on them',
+  (() => {
+    const parts = subBoxes(piece({ type: 'Drawer unit on castors', width: 36, depth: 58, height: 76, face: 'drawers' }))
+    const body = parts.find((b) => b.detailFront)
+    const castors = parts.filter((b) => b.lz0 === 0)
+    return !!body && body.lz0 > 3 && castors.length === 4 && castors.every((c) => c.lz1 <= body!.lz0 + 1e-9)
+  })(),
+)
+
+check(
+  'a shelf too small to have a carcass is left as one box',
+  subBoxes(piece({ type: 'Shelf', width: 30, depth: 20, height: 5, face: 'shelves' })).length === 1,
+)
+
+check(
+  'a wardrobe is still a single box',
+  subBoxes(piece({ type: 'Wardrobe', width: 100, depth: 58, height: 201, face: 'double-door' })).length === 1,
 )
 
 console.log(failures ? `\n${failures} failing` : `\nall passing`)

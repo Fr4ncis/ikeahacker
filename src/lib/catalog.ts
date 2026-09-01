@@ -11,6 +11,7 @@ import type { Catalog, CatalogItem, SystemCategory } from './types'
 let data: Catalog | null = null
 let byId = new Map<string, CatalogItem>()
 let groups: ProductGroup[] = []
+let groupOfItem = new Map<string, ProductGroup>()
 let bounds: SizeBounds = { width: [0, 0], depth: [0, 0], height: [0, 0] }
 
 /**
@@ -110,6 +111,7 @@ export async function loadCatalog(url = `${import.meta.env.BASE_URL}catalog.json
   data = loaded
   byId = new Map(loaded.items.map((i) => [i.id, i]))
   groups = buildGroups(loaded.items)
+  groupOfItem = new Map(groups.flatMap((g) => g.variants.map((v) => [v.id, g] as const)))
   bounds = measureBounds(loaded.items)
   return loaded
 }
@@ -125,6 +127,16 @@ export function getItem(id: string): CatalogItem | undefined {
 
 export function sizeBounds(): SizeBounds {
   return bounds
+}
+
+/**
+ * The product an article belongs to, and with it the other colourways of the
+ * same piece in the same size. Swapping between them is a change of finish
+ * rather than a change of furniture, which is why the measurements are part of
+ * the grouping key.
+ */
+export function groupOf(itemId: string): ProductGroup | undefined {
+  return groupOfItem.get(itemId)
 }
 
 export const CATEGORY_LABELS: Record<SystemCategory, string> = {

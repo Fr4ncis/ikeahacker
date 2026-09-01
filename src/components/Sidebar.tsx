@@ -11,6 +11,7 @@ import {
   formatPrice,
   formatPriceRange,
   getCatalog,
+  groupOf,
   hasAnyFilter,
   hasSizeFilter,
   setSizes,
@@ -36,13 +37,18 @@ const SWATCH_LIMIT = 7
 function ProductCard({
   match,
   currency,
+  inRoom,
   onAdd,
+  onPickColour,
   onContext,
   onPreview,
 }: {
   match: GroupMatch
   currency: string
+  /** True when a piece of this exact product is the one selected in the room. */
+  inRoom: boolean
   onAdd: (item: CatalogItem) => void
+  onPickColour: (item: CatalogItem) => void
   onContext: (item: CatalogItem, x: number, y: number) => void
   onPreview: (item: CatalogItem | null, colours: number, element: HTMLElement | null) => void
 }) {
@@ -60,7 +66,7 @@ function ProductCard({
 
   return (
     <div
-      className="item-card"
+      className={`item-card ${inRoom ? 'item-card--in-room' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault()
         onContext(variant, e.clientX, e.clientY)
@@ -100,6 +106,7 @@ function ProductCard({
               aria-label={v.finish}
               onClick={(e) => {
                 setPicked(i)
+                onPickColour(v)
                 Sound.tick()
                 onPreview(v, group.variants.length, e.currentTarget.closest('.item-card'))
               }}
@@ -300,7 +307,9 @@ export function Sidebar({
   const previewTimer = useRef<number | undefined>(undefined)
   const asideRef = useRef<HTMLElement>(null)
   const addItem = usePlanner((s) => s.addItem)
+  const updateItem = usePlanner((s) => s.updateItem)
   const room = usePlanner((s) => s.room)
+  const selected = usePlanner((s) => s.items.find((i) => i.uid === s.selectedUid) ?? null)
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [open, setOpen] = useState<'system' | 'size' | null>(null)
   const [shown, setShown] = useState(PAGE)
@@ -366,6 +375,7 @@ export function Sidebar({
   const picked = (d: Dimension) => summariseSizes(filters[d], anySize[d].map((o) => o.value))
   const visible = matches.slice(0, shown)
   const activeSystem = catalog.systems.find((s) => s.id === filters.system)
+  const selectedGroup = selected ? groupOf(selected.itemId)?.key : undefined
   const sizeActive = hasSizeFilter(filters)
 
   const sizeSummary = sizeActive
@@ -495,9 +505,17 @@ export function Sidebar({
             key={m.group.key}
             match={m}
             currency={catalog.currency}
+            inRoom={selectedGroup === m.group.key}
             onAdd={(item) => {
               addItem(item.id)
               Sound.place()
+            }}
+            /* Picking a colourway of the piece you have selected changes that
+               piece, rather than only deciding the colour of the next one. */
+            onPickColour={(item) => {
+              if (selectedGroup === m.group.key && selected) {
+                updateItem(selected.uid, { itemId: item.id, color: undefined })
+              }
             }}
             onContext={onContext}
             onPreview={showPreview}
