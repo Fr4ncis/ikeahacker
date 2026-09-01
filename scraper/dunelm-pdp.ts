@@ -55,7 +55,7 @@ export interface LabelledDims extends Dims {
  * losing game, which is why it is not what the parser relies on.
  */
 const PART_LABELS =
-  /\b(shelf|shelves|drawer|seat|mattress|arm|leg|back|internal|packaging|box|cushion|headboard|footboard|clearance|between)\b/i
+  /\b(shelf|shelves|drawers?|seats?|mattress|arms?|legs?|back|internal|packaging|box|cushions?|headboard|footboard|clearance|between|space|storage|compartment)\b/i
 
 /**
  * Mattress sizes, the one case where a single page really is several products.
@@ -87,8 +87,8 @@ function parseBlock(text: string, isBed: boolean): Dims | null {
     found[axis] ??= parseFloat(m[2])
   }
 
-  let { W: width, D: depth } = found
-  const { H: height, L: length } = found
+  let { W: width, D: depth, H: height } = found
+  const { L: length } = found
 
   // Most furniture is published as H/W/D, but bed frames give a length instead
   // of a depth, and so do the odd table and ottoman. This is the same call
@@ -96,7 +96,15 @@ function parseBlock(text: string, isBed: boolean): Dims | null {
   // head to foot, i.e. away from the wall, so it is the depth, while on
   // anything else the length is simply the long horizontal side.
   if (length !== undefined) {
-    if (isBed) {
+    if (height === undefined && width !== undefined && depth !== undefined) {
+      // "Single: L 190cm x W 90cm x D 38cm", which divan bases use. All three
+      // letters are present and none of them is H, so the D is doing the job of
+      // the height and the length is the depth. Reading this literally leaves
+      // the block with no height at all, and the parser then falls through to
+      // whatever comes next, which is how a divan base became its own drawer.
+      height = depth
+      depth = length
+    } else if (isBed) {
       depth ??= length
     } else if (depth === undefined && width !== undefined) {
       depth = Math.min(width, length)
@@ -152,6 +160,12 @@ export function parseDimensions(value: string | undefined, isBed = false): Label
   // first would quietly drop two thirds of the product.
   if (BED_SIZES.test(parsed[first].label)) {
     for (let i = first + 1; i < parsed.length; i++) {
+      // A part header such as "Drawer Space:" or "Ottoman Storage Space:" is
+      // followed by that part's own run of Single/Double/Kingsize lines. Those
+      // carry exactly the labels we are looking for, so scanning past a header
+      // collects a drawer as though it were a mattress size. Everything after
+      // the first header describes a part, so stop there.
+      if (PART_LABELS.test(parsed[i].label)) break
       if (!BED_SIZES.test(parsed[i].label)) continue
       const dims = parseBlock(parsed[i].text, isBed)
       if (dims) out.push({ label: parsed[i].label, ...dims })

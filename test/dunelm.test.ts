@@ -172,6 +172,56 @@ check('storage bed frames are beds', isBedCategory('Storage Bed Frames'), true)
 check('bunks are beds', isBedCategory('Childrens Bunk Beds'), true)
 check('bookcases are not beds', isBedCategory('Bookcases'), false)
 
+// --- divan bases, which publish L, W and D and no height at all -------------
+//
+// Read literally, `L 190cm x W 90cm x D 38cm` has no height, so the block was
+// rejected and the parser fell through to the next one that did parse. That was
+// the drawer, and every Silentnight divan base in the catalogue came out as a
+// 78 x 30 x 12 cm box.
+
+check(
+  'reads D as the height when a block has L, W and D but no H',
+  bed('<p>Single: L 190cm x W 90cm x D 38cm</p>'),
+  [{ width: 90, depth: 190, height: 38 }],
+)
+
+check(
+  'does not fall through a divan base to its drawers',
+  parseDimensions(
+    '<p>Single: L 190cm x W 90cm x D 38cm</p><p>Small Double: L 190cm x W 120cm x D 38cm</p>' +
+      '<p>Double: L 190cm x W 135cm x D 38cm</p><p>Drawers: H 12cm x W 78cm x D 30cm</p>',
+    true,
+  ),
+  [
+    { label: 'Single', width: 90, depth: 190, height: 38 },
+    { label: 'Small Double', width: 120, depth: 190, height: 38 },
+    { label: 'Double', width: 135, depth: 190, height: 38 },
+  ],
+)
+
+// "Drawers" is not matched by `\bdrawer\b`, the same plural trap as Kingsize.
+check(
+  'treats a plural part label as a part',
+  one('<p>H 80cm x W 40cm</p><p>Drawers: H 12cm x W 78cm x D 30cm</p>'),
+  [],
+)
+
+// Everyday Divan Base: a part header introduces its own run of mattress sizes.
+// Scanning past it collected four drawer spaces as four more bed sizes.
+check(
+  'stops collecting sizes at a part header',
+  parseDimensions(
+    '<p>Single: H 36cm x W 90cm x D 190cm</p><p>Double: H 36cm x W 135cm x D 190cm</p>' +
+      '<p>Drawer Space:</p><p>Single: H 12.5cm x W 72.5cm x D 51.5cm</p>' +
+      '<p>Double: H 12.5cm x W 72.5cm x D 51.5cm</p>',
+    true,
+  ),
+  [
+    { label: 'Single', width: 90, depth: 190, height: 36 },
+    { label: 'Double', width: 135, depth: 190, height: 36 },
+  ],
+)
+
 // --- extractProduct ---
 
 const PAGE = `

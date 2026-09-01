@@ -33,7 +33,7 @@ import {
   type LabelledDims,
   type RawProduct,
 } from './dunelm-pdp.ts'
-import { colorForFinish } from './finish.ts'
+import { colorForFinish, DEFAULT_COLOR } from './finish.ts'
 import type { Catalog, CatalogItem, FaceStyle, SystemCategory, SystemSummary } from '../src/lib/types.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -77,6 +77,15 @@ const CATEGORIES: [RegExp, SystemCategory, FaceStyle][] = [
   [/stool|footstool|ottoman|bench|chair/i, 'seating', 'soft'],
   [/cabinet|cupboard|storage|blanket box/i, 'utility', 'door'],
 ]
+
+/**
+ * The shallowest a bed can be and still hold a mattress. The shortest UK size
+ * is a small single at 190 cm, so this is a generous floor that only catches
+ * pages contradicting themselves, e.g. a bed published as 107 cm deep whose own
+ * ottoman storage space is listed at 193 cm. Placing one of those would put a
+ * bed in the room that no mattress fits.
+ */
+const MATTRESS_MIN = 150
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -129,14 +138,77 @@ function classify(category: string): [SystemCategory, FaceStyle] | null {
 }
 
 /**
- * The finish, in the words the colour table understands. Dunelm publishes a
- * `color` on most products, and where it does not, the finish is the part of
- * the name after the comma ("Corona Large Sideboard, Pine").
+ * The finish as a person would read it. Dunelm publishes a `color` on about
+ * half its furniture; where it does not, the part of the name after the comma
+ * is the finish ("Corona Large Sideboard, Pine").
  */
 function finishOf(raw: RawProduct): string {
   if (raw.color) return slugify(raw.color)
   const after = raw.name.split(',').slice(1).join(' ').trim()
   return after ? slugify(after) : ''
+}
+
+/**
+ * The text to hunt for a shade in, which is deliberately wider than the finish
+ * shown in the UI. Two thirds of the catalogue has no `color` and no comma, yet
+ * says "Walnut Effect" or "Black Gloss" in the name, and drawing all of that as
+ * the same default grey makes a room of Dunelm furniture unreadable. The colour
+ * table already matches on a substring, so feeding it the name is the same
+ * trick the IKEA scraper plays with the product URL.
+ */
+function shadeSlug(raw: RawProduct): string {
+  return slugify([raw.color, raw.name, raw.attributes['Finish'] ?? ''].join(' '))
+}
+
+/**
+ * Shades for words Dunelm uses and IKEA does not. Most of these come off
+ * upholstery rather than flat pack, which is why `finish.ts` has never needed
+ * them: IKEA describes a sofa by its cover name, Dunelm by its colour.
+ *
+ * This is a supplement rather than an addition to the shared table, because
+ * words like "natural" and "light" appear in IKEA slugs too, and adding them
+ * over there would quietly restyle products in the existing catalogue. It is
+ * only consulted when the shared table has given up. Compounds first, since
+ * the first match wins.
+ */
+const DUNELM_FINISHES: [string, string][] = [
+  ['faux-leather', '#7a6250'],
+  ['light-wood', '#d3b184'],
+  ['dark-wood', '#5f452f'],
+  ['smoked-oak', '#8c6f52'],
+  ['natural', '#d8c7a2'],
+  ['charcoal', '#3f4246'],
+  ['cream', '#efe6d5'],
+  ['ivory', '#f2ead9'],
+  ['sage', '#a3b09a'],
+  ['olive', '#7a7f4a'],
+  ['ochre', '#cf9b3c'],
+  ['mustard', '#d3a83b'],
+  ['navy', '#29344d'],
+  ['teal', '#2f6f78'],
+  ['blush', '#e5c3bd'],
+  ['mink', '#a9968a'],
+  ['taupe', '#b3a595'],
+  ['rust', '#a35a35'],
+  ['terracotta', '#b4593c'],
+  ['sand', '#ded0b6'],
+  ['stone', '#cfc8bd'],
+  ['mango', '#a9764a'],
+  ['linen', '#ded5c4'],
+  ['tan', '#b07b4f'],
+  ['wood', '#b98d59'],
+  ['marble', '#e8e6e1'],
+  ['rattan', '#c8a06a'],
+  ['velvet', '#7c6d80'],
+]
+
+/** The shared table first, then the words only Dunelm uses. */
+function shadeFor(raw: RawProduct): string {
+  const slug = shadeSlug(raw)
+  const shared = colorForFinish(slug)
+  if (shared !== DEFAULT_COLOR) return shared
+  for (const [key, hex] of DUNELM_FINISHES) if (slug.includes(key)) return hex
+  return DEFAULT_COLOR
 }
 
 interface Candidate {
@@ -171,7 +243,7 @@ function itemsFor(c: Candidate, system: string, systemLabel: string): CatalogIte
       name: multi && size.label ? `${c.raw.name} (${size.label})` : c.raw.name,
       type: c.raw.category,
       finish: finish.replace(/-/g, ' ') || 'unspecified',
-      color: colorForFinish(finish),
+      color: shadeFor(c.raw),
       width: size.width,
       depth: size.depth,
       height: size.height,
@@ -227,6 +299,7 @@ async function main() {
   let noProduct = 0
   let notFurniture = 0
   let unsized = 0
+  let implausible = 0
   const kept: Candidate[] = []
 
   await mapLimit(candidates, CONCURRENCY, async (url) => {
@@ -238,12 +311,21 @@ async function main() {
         const hit = classify(raw.category)
         if (!hit) notFurniture++
         else {
-          const sizes = parseDimensions(
-            raw.attributes['Product Dimensions'],
-            isBedCategory(raw.category),
-          )
+          const isBed = isBedCategory(raw.category)
+          const sizes = parseDimensions(raw.attributes['Product Dimensions'], isBed)
+          const usable = isBed ? sizes.filter((s) => s.depth >= MATTRESS_MIN) : sizes
           if (!sizes.length) unsized++
-          else kept.push({ raw, url, cat: hit[0], face: hit[1], sizes, range: raw.name.split(/[\s,]/)[0] })
+          else if (!usable.length) implausible++
+          else {
+            kept.push({
+              raw,
+              url,
+              cat: hit[0],
+              face: hit[1],
+              sizes: usable,
+              range: raw.name.split(/[\s,]/)[0],
+            })
+          }
         }
       }
     }
@@ -287,6 +369,7 @@ async function main() {
   console.log(`\n  ${noProduct} pages with no product blob`)
   console.log(`  ${notFurniture} not furniture`)
   console.log(`  ${unsized} furniture with no usable size`)
+  console.log(`  ${implausible} dropped as contradicting themselves`)
   console.log(`\n${items.length} placeable products across ${catalog.systems.length} groups.`)
   for (const s of catalog.systems.slice(0, 15)) console.log(`  ${s.id.padEnd(28)} ${s.count}`)
 
