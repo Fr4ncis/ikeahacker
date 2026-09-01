@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { formatPrice } from '../lib/catalog'
+import { formatPrice, productHost } from '../lib/catalog'
 import type { CatalogItem } from '../lib/types'
 
 export interface PreviewTarget {
@@ -74,7 +74,7 @@ export function ProductPreview({ target, currency }: { target: PreviewTarget | n
 
         <p className="preview-hint">
           {target.colours > 1 ? `${target.colours} colours · ` : ''}
-          Click to place · right-click for ikea.com
+          Click to place · right-click for {productHost(item)}
         </p>
       </div>
     </div>

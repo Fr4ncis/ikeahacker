@@ -6,6 +6,7 @@ import { RoomCanvas } from './components/RoomCanvas'
 import { Sidebar } from './components/Sidebar'
 import { Toolbar } from './components/Toolbar'
 import { UpdateBanner } from './components/UpdateBanner'
+import { productHost } from './lib/catalog'
 import { decodeLayout, layoutFromUrl } from './lib/layout'
 import { fetchPlan, shortIdFromUrl } from './lib/shortlink'
 import { Sound } from './lib/sound'
@@ -74,7 +75,7 @@ export default function App() {
   }, [])
 
   const announce = useCallback((next: LoadNotice) => setNotice(next), [])
-  const openOnIkea = useCallback((item: CatalogItem) => {
+  const openProductPage = useCallback((item: CatalogItem) => {
     window.open(item.productUrl, '_blank', 'noopener,noreferrer')
   }, [])
 
@@ -99,7 +100,7 @@ export default function App() {
         x,
         y,
         actions: [
-          { label: 'Open on ikea.com ↗', onSelect: () => openOnIkea(item) },
+          { label: `Open on ${productHost(item)} ↗`, onSelect: () => openProductPage(item) },
           {
             label: 'Add to room',
             onSelect: () => {
@@ -111,7 +112,7 @@ export default function App() {
         ],
       })
     },
-    [openOnIkea, copyArticle],
+    [openProductPage, copyArticle],
   )
 
   /** Right-click on something already placed: the same, plus editing it. */
@@ -123,7 +124,7 @@ export default function App() {
         x,
         y,
         actions: [
-          { label: 'Open on ikea.com ↗', onSelect: () => openOnIkea(item) },
+          { label: `Open on ${productHost(item)} ↗`, onSelect: () => openProductPage(item) },
           {
             label: 'Duplicate',
             onSelect: () => {
@@ -150,7 +151,7 @@ export default function App() {
         ],
       })
     },
-    [openOnIkea, copyArticle],
+    [openProductPage, copyArticle],
   )
 
   return (

@@ -18,7 +18,7 @@ export interface MenuTarget {
  * Right-click menu for a product, in the catalogue or in the room.
  *
  * The browser's own menu is suppressed only where we have something better to
- * offer, and the first entry is always the link to ikea.com, which is what the
+ * offer, and the first entry is always the link to the shop, which is what the
  * menu exists for.
  */
 export function ContextMenu({ target, onClose }: { target: MenuTarget | null; onClose: () => void }) {

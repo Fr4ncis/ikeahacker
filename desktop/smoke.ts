@@ -145,9 +145,17 @@ app.whenReady().then(async () => {
     check('the room canvas is painted', canvas > 0)
 
     const link = (await window.webContents.executeJavaScript(
-      `(() => { const a = document.querySelector('.ikea-link'); return a ? a.href : '' })()`,
+      `(() => { const a = document.querySelector('.product-link'); return a ? a.href : '' })()`,
     )) as string
     check('a product still links to ikea.com', /^https:\/\/www\.ikea\.com\//.test(link), link)
+
+    // The link label has to name the shop the link actually goes to. It read
+    // "ikea.com" for every product until there was more than one shop, at which
+    // point a Dunelm desk offered "Open on ikea.com" above a dunelm.com href.
+    const labelled = (await window.webContents.executeJavaScript(
+      `(() => { const a = document.querySelector('.product-link'); return a ? a.textContent.trim() : '' })()`,
+    )) as string
+    check('the link is labelled with the host it opens', labelled.includes(new URL(link).host.replace(/^www\./, '')), labelled)
 
     check('the page reports no errors', problems.length === 0, problems.join(' | '))
 

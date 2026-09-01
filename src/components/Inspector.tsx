@@ -1,4 +1,4 @@
-import { formatPrice, getCatalog, getItem, groupOf } from '../lib/catalog'
+import { formatPrice, getCatalog, getItem, groupOf, productHost, retailerOf } from '../lib/catalog'
 import { Sound } from '../lib/sound'
 import { usePlanner } from '../state/store'
 import type { PlacedItem } from '../lib/types'
@@ -62,7 +62,7 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
 
       <p className="dims">
         {cat.width} × {cat.depth} × {cat.height} cm
-        <span className="muted"> — IKEA lists “{cat.measureText}”</span>
+        <span className="muted"> — {retailerOf(cat)} lists “{cat.measureText}”</span>
       </p>
 
       <div className="field-row">
@@ -171,8 +171,8 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
       </div>
 
       {cat.productUrl && (
-        <a className="ikea-link" href={cat.productUrl} target="_blank" rel="noreferrer noopener">
-          Open on ikea.com ↗
+        <a className="product-link" href={cat.productUrl} target="_blank" rel="noreferrer noopener">
+          Open on {productHost(cat)} ↗
         </a>
       )}
     </div>

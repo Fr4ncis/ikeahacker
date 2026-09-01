@@ -914,13 +914,13 @@ kbd {
   line-height: 1;
 }
 
-.ikea-link {
+.product-link {
   font-size: 12px;
   color: var(--accent);
   text-decoration: none;
 }
 
-.ikea-link:hover { text-decoration: underline; }
+.product-link:hover { text-decoration: underline; }
 
 /* ---------- Shopping list ---------- */
 

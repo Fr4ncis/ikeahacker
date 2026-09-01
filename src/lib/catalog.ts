@@ -271,6 +271,25 @@ export function categories(): SystemCategory[] {
   return CATEGORY_ORDER.filter((c) => systems.some((s) => s.category === c))
 }
 
+/** The shop a product came from, for anything a person reads. */
+export const retailerOf = (item: CatalogItem): string => item.retailer ?? DEFAULT_RETAILER
+
+/**
+ * The host a product's page lives on, e.g. "ikea.com".
+ *
+ * Read off the link rather than the retailer name, because it labels a link the
+ * reader is about to follow and should say where that goes. Every string like
+ * this used to be the literal "ikea.com", which read as a lie the moment a
+ * Dunelm desk was selected: the link was right, the words around it were not.
+ */
+export function productHost(item: CatalogItem): string {
+  try {
+    return new URL(item.productUrl).host.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
 /**
  * The shops present, the one that must be there first. A fork with only
  * `catalog.json` gets a single entry, and the sidebar hides the picker rather
