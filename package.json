@@ -10,8 +10,9 @@
     "scrape": "tsx scraper/scrape.ts",
     "scrape:dry": "tsx scraper/scrape.ts --dry-run",
     "shapes": "tsx scraper/shapes.ts",
-    "test": "tsx test/geometry.test.ts && tsx test/polygon.test.ts && tsx test/animation.test.ts && tsx test/styles.test.ts && tsx test/layout.test.ts && tsx test/catalog.test.ts",
-    "test:worker": "tsx test/shortlink.test.ts"
+    "test": "tsx test/geometry.test.ts && tsx test/polygon.test.ts && tsx test/animation.test.ts && tsx test/styles.test.ts && tsx test/layout.test.ts && tsx test/catalog.test.ts && tsx test/dunelm.test.ts",
+    "test:worker": "tsx test/shortlink.test.ts",
+    "scrape:dunelm": "tsx scraper/dunelm.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

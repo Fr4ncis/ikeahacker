@@ -11,6 +11,7 @@ npm run build        # tsc -b && vite build
 npm test             # all app tests
 npm run scrape       # refresh public/catalog.json from ikea.com
 npm run scrape:dry   # fetch and report, write nothing
+npm run scrape:dunelm  # refresh public/catalog-dunelm.json from dunelm.com
 ```
 
 There is no test framework and no runner flags. Each file in `test/` is a standalone
@@ -160,6 +161,26 @@ does a search-API pass then a product-page pass for items the API leaves unsized
 to hex colours. URLs transliterate Swedish characters their own way (`POÄNG` becomes
 `poaeng`). Extendable tables (`140/196x85 cm`) take the retracted size. Missing depths are
 inferred per product type: a table's `Length` is its width, a bed's `Length` is its depth.
+
+**A second retailer, in its own file.** `scraper/dunelm.ts` writes
+`public/catalog-dunelm.json`, never `catalog.json`, because the nightly re-scrape
+rewrites `catalog.json` from IKEA alone and would delete every Dunelm product once a
+night. Dunelm has no usable search API (category grids render on the client), so
+discovery is the sitemap's 42,000 URLs, cut by a slug keyword to the few thousand worth
+opening; the page's own `category` is what actually decides, so a greedy keyword costs a
+wasted fetch rather than a bathmat in the planner. `dunelm-pdp.ts` holds the parsing and
+the disk cache, which stores the extracted fields rather than the finished item, so
+changing what counts as a width does not re-download 800 MB. Dunelm labels its axes, but
+beds publish a length instead of a depth, and reading that wrong drops nearly every bed
+frame while looking exactly like a retailer that publishes no sizes: watch the "no usable
+size" counter, and see `scraper/OTHER-RETAILERS.md` for what else the format does. A bed
+page is several products, one per mattress size, so ids for those are derived as
+`id * 10 + n`, which keeps them numeric for the share encoding and inside an
+eleven-digit space Dunelm's own ten-digit ids never occupy.
+
+Nothing loads that file yet. Merging a second source into the app is the open question,
+and the sharp edge is that an id carries no retailer, so an eight-digit id from a new
+source would silently resolve to an IKEA article in a shared plan.
 
 ## Conventions
 

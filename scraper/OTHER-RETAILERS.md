@@ -41,18 +41,41 @@ taken here.
 **Dimensions.** All 12 sampled products published a usable overall size, and Dunelm
 labels its axes, which is better than IKEA's bare `100x58x201 cm`. The value is a run of
 `<p>` blocks and only the first is the whole product; the rest describe shelves, drawers
-and seats. Traps found in a sample of twelve:
+and seats.
+
+A warning about what follows. This list came out of twelve products and it was not
+enough. Every bed in that sample used `D` for its depth, so the parser was written to
+expect it, and the first real run silently dropped almost every bed frame in the
+catalogue: Dunelm publishes beds with an `L` for length, not a `D`. Twelve products
+tells you which spellings exist, not which are common, and a parser that drops a product
+looks exactly like a product with no dimensions. The counters in the scraper exist for
+that reason, and a jump in "furniture with no usable size" is the signal to go and read
+some raw values again.
+
+Traps confirmed against real values:
 
     H 140cm x W 63cm x D 32cm                      the common case
     H: 77cm x W: 128cm x D: 71cm                   colons after the label
     H 65cm (26") x W 50cm (20") x D 37cm (15")     imperial in brackets, do not read the 26
     W 100cm x D 198.5cm x H 85cm                   beds put W first, so parse by label not position
+    Single: H 90cm x W 102cm x L 203cm             beds give a length, not a depth
+    L 80cm x W 40cm x H 40cm, Capacity: 128 litres so do some ottomans, and on those the
+                                                   length is the long side, not the depth
     Table Closed: H 76cm ... | Table Extended: ... first block is the retracted size, which
                                                    matches what the IKEA scraper already does
-    Single: W 100cm ... | Double: W 145cm ...      one page, several mattress sizes
+    Single: ... | Kingsize: ...                    one page, several mattress sizes
 
-That last one is the only real design decision: a bed page is several products. Emitting
-one catalogue item per named size is closer to the truth than taking the first.
+The length rows are the same distinction `dimsFromMeasures` already draws for IKEA, and
+for the same reason: a bed's length runs head to foot, away from the wall, so it is the
+depth, whereas on anything else the length is simply the long horizontal side. Sofa beds
+go with "anything else", since folded they sit along a wall like any sofa. A bunk bed can
+be wider than it is long, so the rule has to be "length is the depth", not "the long side
+is the width".
+
+The mattress rows are the one real design decision: a bed page is several products.
+Emitting one catalogue item per named size is closer to the truth than taking the first.
+Watch the spelling, though, because "Kingsize" as one word is as common as "King Size"
+and a `king\b` match quietly loses a size on most bed pages.
 
 `offers.price` was missing on two of the twelve (a sofa bed and a bed frame), presumably
 because those pages price a range, so price has to be optional or read from elsewhere.
