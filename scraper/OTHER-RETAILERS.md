@@ -7,8 +7,9 @@ placeable and the planner drops it.
 
 ## Verdict
 
-Dunelm is straightforward and worth doing. Swyft is a smaller prize behind a bot wall
-that the current `fetch`-based scraper cannot pass.
+Both are workable. Dunelm is a plain `fetch` job in the same shape as the existing IKEA
+pass. Swyft needs a browser to get past Cloudflare, but only one, for one session, and
+its data is the cleaner of the two once you are in.
 
 ## Dunelm
 
@@ -82,24 +83,48 @@ split out. `metafields.model` is a family name (Model 19) that behaves like an I
 system, and the page count is small: 250 products collapse to 51 distinct model, type and
 size combinations, so the whole catalogue is on the order of 150 pages, not 750.
 
-**The blocker.** Cloudflare serves a managed challenge to plain `fetch`/`curl`. The first
-three `products.json` requests returned 200; the fourth returned 429 with a "Verifying
-your connection" interstitial, and after that every path on the host, `robots.txt`
-included, kept returning the challenge for the rest of the session. Full browser headers
-and a cookie jar did not help, which is expected: the challenge wants JavaScript. The
-same URLs load without complaint in a real browser.
+**The wall, and the way round it.** Cloudflare serves a managed challenge to plain
+`fetch`/`curl`. The first three `products.json` requests returned 200; the fourth returned
+429 with a "Verifying your connection" interstitial, and after that every path on the
+host, `robots.txt` included, kept returning the challenge. Full browser headers and a
+cookie jar did not help, which is expected: the challenge wants JavaScript.
 
-So Swyft costs a headless browser, and that is a different kind of dependency from
-`scraper/pip.ts`, which is 130 lines of `fetch` and a disk cache. Options, cheapest
-first:
+What does work is doing the fetching *from inside* a page that has already cleared the
+challenge. Load any Swyft URL in a real browser once, then call same-origin `fetch()` in
+the page context: the clearance cookie rides along and every request is answered
+normally. `products.json?page=1` returns 200 with 250 products through the page while
+`curl` on the same URL gets 429. That turns "we need a browser per product page" into
+"we need one browser, once", which is a much smaller dependency.
 
-1. Pace the plain fetches hard (single connection, several seconds apart) and hope the
-   challenge is only triggered by bursts. Cheap to try, and the disk cache means a
-   half-finished run is not wasted, but one trip and the host is closed for a while.
-2. Fetch the ~150 pages through Playwright once, commit the extracted metadata, and
-   re-run it rarely. Swyft's catalogue moves far more slowly than IKEA's.
-3. Ask Swyft for a Storefront API token. Their metafields are already public on the page,
-   so there is nothing to hide, and it removes the fight entirely.
+**Confirmed by running it.** The whole catalogue was pulled this way, one page at a
+time with a 250-400 ms gap, no throttling seen:
+
+- 750 listings over three `products.json` pages (page 4 is a genuine Shopify 500, not a
+  challenge, and marks the end).
+- 94 distinct shapes once colourways are collapsed on title-before-the-comma plus type.
+- 70 of those 94 published width, depth and height, covering **715 of the 750 listings**.
+- The 24 without dimensions are not losses: sofa covers, ottoman covers, sofa legs and
+  ottoman legs, plus a handful of untyped legacy duplicates (`desk-3` alongside the live
+  `desk-03-walnut`) whose metafields are all null. Dropping anything with an empty
+  `product_type` removes the duplicates cleanly.
+
+The extracted table is uniform in a way IKEA's is not. Every sofa has a depth, which is
+precisely what the IKEA search API fails to give and why `scraper/pip.ts` exists at all:
+
+    Model 19 | Sofa              | 200cm   | 81cm    | 83.5cm
+    Model 19 | Chaise sofa       | 202.5cm | 81cm    | 83.5cm
+    Model 15 | Sofa              | 206cm   | 103.5cm | 91cm
+    Model 02 | Armchair          | 80cm    | 85cm    | 82cm
+    Sideboard 01 | Sideboard     | 170cm   | 45cm    | 68cm
+    Console Table 01 | Console Table | 110 cm | 35 cm | 80 cm
+
+Two small parsing notes from the real data: the unit is sometimes spaced (`110 cm`) and
+one value carries a trailing space, so trim before matching; and one product has an empty
+`model`, so do not key on it.
+
+Remaining options if the in-page trick ever stops working: pace plain fetches hard and
+accept the occasional lockout, or ask Swyft for a Storefront API token. Their metafields
+are already public on the page, so there is nothing to hide.
 
 ## What this means for the code
 
