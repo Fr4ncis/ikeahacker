@@ -33,8 +33,20 @@ jobs:
       # broken planner should stop the build before it packages anything.
       - run: npm test
 
-      - run: npm ci
+      # Installing Electron downloads a 100 MB binary from GitHub, which is
+      # the one step here that fails for reasons of its own: a run has already
+      # been lost to ECONNRESET halfway through it.
+      - name: Install the shell's dependencies
         working-directory: desktop
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt), retrying"
+            rm -rf node_modules
+            sleep $((attempt * 15))
+          done
+          exit 1
       # Builds the planner with the desktop settings, then the shell, then packages.
       - run: npm run dist
         working-directory: desktop
