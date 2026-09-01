@@ -9,6 +9,7 @@
  */
 import { FACE_LIGHT, mix, readableOn, shade } from './color'
 import { APPEAR_MS, clamp01, easeOutBack, easeOutCubic, lerp, VANISH_MS } from './easing'
+import { shapeOf } from './catalog'
 import { subBoxes, localToWorld, type SubBox } from './geometry'
 import type { Point as Vertex } from './polygon'
 import {
@@ -544,7 +545,7 @@ export function renderScene(
 
     // Sub-boxes need their own back-to-front pass, e.g. a sofa's back before its seat.
     const boxes = paintOrder(
-      subBoxes(cat).map((sub) => toDrawable(sub, placed, cat, scene.room, scene.camera.rotation)),
+      subBoxes(cat, shapeOf(cat.id)).map((sub) => toDrawable(sub, placed, cat, scene.room, scene.camera.rotation)),
       (b) => b,
     ).map((box) => (settled ? box : liftAndScale(box, bounds, grow, lift)))
 

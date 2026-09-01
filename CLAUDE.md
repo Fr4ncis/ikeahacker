@@ -21,6 +21,11 @@ with an explicit `.ts` extension (`allowImportingTsExtensions`); app code import
 
 `npm run test:worker` is separate and is not part of `npm test`.
 
+`npm run shapes` is a separate pass over about 1,600 model downloads, cached under
+`scraper/.cache`; knobs are `SHAPES_LIMIT`, `SHAPES_CONCURRENCY` and `SHAPES_CELL` (the
+cube size, which invalidates every shape when it changes). It is not part of `npm run
+scrape`, so a nightly re-scrape can add products that have no shape yet.
+
 Scraper environment knobs: `PIP_LIMIT=0` skips the slow product-page pass,
 `PIP_CONCURRENCY`, `IKEA_MARKET`/`IKEA_LANG` target another market. Product pages are
 cached under `scraper/.cache` (gitignored), so a second run is nearly free.
@@ -96,6 +101,17 @@ published site into `userData`, behind the same guard as the re-scrape workflow,
 protocol handler prefers that copy; it takes effect at the next launch. Link building
 goes through `linkBase()` in `src/lib/layout.ts`, which returns the current URL on the
 web and the configured public site off it: a shared `app://` link opens for nobody.
+
+**Shapes from IKEA's models beat the archetypes, when there are any.** `npm run shapes`
+(`scraper/shapes.ts`) reads IKEA's glTF per product, voxelises it and stores a dozen-odd
+boxes in `public/shapes.json`; `subBoxes(item, stored)` uses them and falls back to the
+type archetype otherwise. The cache in `scraper/.cache/cells` stops at the merged cubes,
+not the finished shape, so how a model is squared up with the published size can change
+without re-downloading a gigabyte. Two traps: `merge` counts cells in the model's order
+(x, up, depth) and the planner wants (x, depth, up), so `toLocal` swaps them -- getting
+that wrong leaves a 202 cm bookcase 39 cm tall and only the "fills the size it was scaled
+onto" test catches it; and the enclosed-space fill must not be flooded from below, or
+every cabinet is a cage. Sealing the back as well was measured and is not worth it.
 
 **The macOS build must be signed, even with no certificate.** Electron arrives
 linker-signed, and packaging renames the bundle and adds resources, which leaves that

@@ -183,7 +183,19 @@ const SEATING = /\bchair\b|\bstool\b|highchair/
 const BACKLESS = /stool|footstool|pouffe/
 const BED = /\bbed\b|bedstead|divan|mattress|bunk/
 
-export function subBoxes(item: CatalogItem): SubBox[] {
+/**
+ * The boxes to draw a product as.
+ *
+ * `stored` is the shape built from IKEA's own model, when there is one: real
+ * geometry beats a rule about what bookcases look like, so it wins outright.
+ * It carries no front detailing, because the detail is in the shape by then --
+ * the shelves are shelves rather than lines painted on a slab.
+ */
+export function subBoxes(item: CatalogItem, stored?: number[][]): SubBox[] {
+  if (stored?.length) {
+    return stored.map(([lx0, ly0, lz0, lx1, ly1, lz1]) => ({ lx0, ly0, lz0, lx1, ly1, lz1 }))
+  }
+
   const { width: w, depth: d, height: h, type, face } = item
   const t = type.toLowerCase()
 

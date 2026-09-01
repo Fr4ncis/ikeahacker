@@ -12,6 +12,7 @@ let data: Catalog | null = null
 let byId = new Map<string, CatalogItem>()
 let groups: ProductGroup[] = []
 let groupOfItem = new Map<string, ProductGroup>()
+let shapeOfItem = new Map<string, number[][]>()
 let bounds: SizeBounds = { width: [0, 0], depth: [0, 0], height: [0, 0] }
 
 /**
@@ -113,7 +114,45 @@ export async function loadCatalog(url = `${import.meta.env.BASE_URL}catalog.json
   groups = buildGroups(loaded.items)
   groupOfItem = new Map(groups.flatMap((g) => g.variants.map((v) => [v.id, g] as const)))
   bounds = measureBounds(loaded.items)
+  shapeOfItem = await loadShapes(url.replace(/catalog\.json.*$/, 'shapes.json'), groups)
   return loaded
+}
+
+/**
+ * The boxes a product is drawn as, when one was built from IKEA's own model.
+ *
+ * Shapes are stored once per product and shared by its colourways, since a
+ * different finish is the same piece of furniture. A product with none -- and
+ * about half of them have none, mostly the combinations IKEA never publishes
+ * as a single model -- falls back to the shape its type implies.
+ */
+export function shapeOf(itemId: string): number[][] | undefined {
+  return shapeOfItem.get(itemId)
+}
+
+/**
+ * Loads the shapes beside the catalogue.
+ *
+ * Optional on purpose: the file is built by a separate pass over 1,600
+ * downloads, a fork may not have run it, and the planner works without it. A
+ * missing or broken file costs the shapes, not the app.
+ */
+async function loadShapes(url: string, groups: ProductGroup[]): Promise<Map<string, number[][]>> {
+  const byItem = new Map<string, number[][]>()
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return byItem
+    const file = (await res.json()) as { shapes?: Record<string, number[][]> }
+    const shapes = file.shapes ?? {}
+    for (const group of groups) {
+      const built = group.variants.map((v) => shapes[v.id]).find(Boolean)
+      if (!built) continue
+      for (const variant of group.variants) byItem.set(variant.id, built)
+    }
+  } catch {
+    // No shapes is a supported state, so a failure here is not worth reporting.
+  }
+  return byItem
 }
 
 export function getCatalog(): Catalog {

@@ -112,8 +112,18 @@ card for the piece you have selected is marked, since that is the one the
 swatches act on. Underneath there is a row of paint colours for a piece you
 mean to spray, which is an override of the finish rather than a real product.
 
-Pieces are drawn as shaded isometric boxes with a shape that follows the product
-type, and with front detailing on top: doors get a split and handles, chests get
+Where IKEA publishes a 3D model of a product -- and it does for about 320 of
+them -- the piece is drawn as that model, reduced to a composition of cubes.
+The mesh is sampled into a grid, the space the shell encloses is filled in, and
+the cubes are merged back into as few boxes as will cover them: a dozen or so,
+which is what the renderer wants and what the blocky look calls for. A HEMNES
+TV bench comes out with its three drawer fronts and their knobs, and a BILLY
+with its six shelves in the places they are really in.
+
+The rest of the catalogue is drawn from its product type, which is most of it:
+IKEA publishes no single model for a combination, and this catalogue is full of
+combinations. Pieces are drawn as shaded isometric boxes with a shape that
+follows the product type, and with front detailing on top: doors get a split and handles, chests get
 drawer lines. Tables and desks get a slab on four legs; sofas get a seat, a back
 and arms; chairs and stools get legs, a seat and a backrest; a bed gets a
 headboard and a mattress set into its frame; a bookcase gets two sides, a top
@@ -270,6 +280,40 @@ Those are exactly the faces that bound the cavity when you look into it, so the
 back panel, the shelf tops and the inner faces of the sides are all painted
 already, and the pick pass paints the same geometry: a click through the front
 of a bookcase lands on the bookcase.
+
+### Models
+
+`npm run shapes` builds `public/shapes.json` from IKEA's own glTF models: one
+per product rather than per article, since colourways of the same piece in the
+same size are the same shape. About a fifth of the catalogue ends up with one.
+The rest either publish no model, or publish it only Draco-compressed, which
+would need a decoder for a first pass that does not need one.
+
+Three things about it are worth knowing before changing it.
+
+*The space a shell encloses is filled in.* Sampling only the surface leaves a
+cabinet hollow, and an isometric camera looks down into anything hollow through
+its own top: a chest of drawers came out as a cage. So the air is flooded from
+outside and whatever the flood cannot reach is filled. The flood is not allowed
+in from below, because models routinely leave out the face nobody sees and one
+let in underneath comes up inside the carcass. An open bookcase is unaffected:
+its front is open, so the flood walks in and the shelves stay shelves.
+
+*A model is believed only if it measures what the product says it does.* IKEA
+sometimes publishes the model of a whole combination against one of its parts.
+Those are dropped, and the product keeps the shape its type implies.
+
+*Nothing may leave the published size.* Every shape is scaled onto the width,
+depth and height on the label, because hit-testing and the collision check work
+off those. A test sweeps every stored shape for it, and a second one checks each
+shape *reaches* that size: scaling onto it means the outermost boxes land on it
+by construction, so a shape that stops short is one that was put together
+wrongly. That is not hypothetical -- depth and height were swapped on the way
+in, which left a 202 cm bookcase 39 cm tall and passed every other check while
+it did.
+
+Shapes are optional. A fork that never runs the pass, or a product added by the
+nightly re-scrape before the pass runs again, simply draws from its type.
 
 ### Walls of an irregular room
 

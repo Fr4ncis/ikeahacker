@@ -346,5 +346,101 @@ check(
   subBoxes(piece({ type: 'Wardrobe', width: 100, depth: 58, height: 201, face: 'double-door' })).length === 1,
 )
 
+// --- Shapes built from IKEA's own models --------------------------------------
+
+/**
+ * The shapes are optional: they are built by a separate pass over a thousand
+ * downloads and a fork may never run it. When the file is there, every shape
+ * in it has to obey what the archetypes obey, because the renderer, the picker
+ * and the collision check make no distinction between them.
+ */
+const shapeFile = (() => {
+  try {
+    return JSON.parse(readFileSync(resolve(here, '../public/shapes.json'), 'utf8')) as {
+      cell: number
+      shapes: Record<string, number[][]>
+    }
+  } catch {
+    return null
+  }
+})()
+
+if (!shapeFile) {
+  console.log('SKIP  no public/shapes.json; run `npm run shapes` to build one')
+} else {
+  const sized = new Map(products.map((p) => [p.id, p]))
+  const built = Object.entries(shapeFile.shapes)
+
+  check(
+    `every stored shape belongs to a product in the catalogue (${built.length} shapes)`,
+    built.length > 0 && built.every(([id]) => sized.has(id)),
+  )
+
+  check(
+    'a stored shape stays inside the size IKEA published',
+    built.every(([id, boxes]) => {
+      const item = sized.get(id)!
+      return boxes.every(
+        ([lx0, ly0, lz0, lx1, ly1, lz1]) =>
+          lx0 >= -1e-9 && lx1 <= item.width + 1e-9 &&
+          ly0 >= -1e-9 && ly1 <= item.depth + 1e-9 &&
+          lz0 >= -1e-9 && lz1 <= item.height + 1e-9,
+      )
+    }),
+  )
+
+  check(
+    'no stored box is inside out or flat',
+    built.every(([, boxes]) => boxes.every(([lx0, ly0, lz0, lx1, ly1, lz1]) => lx1 > lx0 && ly1 > ly0 && lz1 > lz0)),
+  )
+
+  check(
+    'a stored shape is six numbers a box, and few enough boxes to draw',
+    built.every(([, boxes]) => boxes.length > 0 && boxes.length <= 80 && boxes.every((b) => b.length === 6)),
+  )
+
+  check(
+    // A shape that floats would look like a bug and hide a real one.
+    'a stored shape reaches the floor',
+    built.every(([, boxes]) => boxes.some(([, , lz0]) => lz0 < shapeFile.cell + 1e-9)),
+  )
+
+  check(
+    // Every shape is scaled onto the size on the label, so its outermost boxes
+    // land on that size by construction. One that stops short is a shape put
+    // together wrongly -- a swap of depth for height leaves a 202 cm bookcase
+    // 39 cm tall, and it passed every other check here while it did so.
+    'a stored shape fills the size it was scaled onto',
+    built.every(([id, boxes]) => {
+      const item = sized.get(id)!
+      const reach = (axis: number) => Math.max(...boxes.map((b) => b[axis]))
+      const slack = shapeFile.cell + 1
+      return (
+        reach(3) >= item.width - slack && reach(4) >= item.depth - slack && reach(5) >= item.height - slack
+      )
+    }),
+    JSON.stringify(
+      built
+        .filter(([id, boxes]) => Math.max(...boxes.map((b) => b[5])) < sized.get(id)!.height - shapeFile.cell - 1)
+        .slice(0, 3)
+        .map(([id]) => `${sized.get(id)!.name} ${sized.get(id)!.type}`),
+    ),
+  )
+
+  check(
+    'a stored shape is used in place of the archetype, and carries no painted detail',
+    (() => {
+      const [id, boxes] = built[0]
+      const drawn = subBoxes(sized.get(id)!, boxes)
+      return drawn.length === boxes.length && drawn.every((b) => !b.detailFront)
+    })(),
+  )
+
+  check(
+    'a product with no stored shape still gets its archetype',
+    subBoxes(piece({ type: 'Chair', width: 46, depth: 51, height: 80 }), undefined).length === 6,
+  )
+}
+
 console.log(failures ? `\n${failures} failing` : `\nall passing`)
 process.exit(failures ? 1 : 0)
