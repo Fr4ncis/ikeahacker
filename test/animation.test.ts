@@ -6,7 +6,7 @@
  * Run with `npm test`.
  */
 import { APPEAR_MS, clamp01, easeOutBack, easeOutCubic, lerp, VANISH_MS } from '../src/lib/easing.ts'
-import { liftAndScale } from '../src/lib/render.ts'
+import { liftAndScale, SHADOW_ALPHA, shadowAlpha } from '../src/lib/render.ts'
 
 let failures = 0
 function check(label: string, ok: boolean, detail = '') {
@@ -114,6 +114,35 @@ check(
   (() => {
     const out = liftAndScale({ ...box, tint: 0.9, detailFront: false }, bounds, 0.5, 5)
     return out.tint === 0.9 && out.detailFront === false
+  })(),
+)
+
+// --- The shadow on the floor -------------------------------------------------
+
+/**
+ * The shadow used to be drawn at a fixed alpha, because `globalAlpha` does not
+ * nest and the routine that drew it overwrote what the caller had set. The
+ * piece then shrank away while its shade stayed at full strength on the floor
+ * until the ghost expired, which is what a removal looked like for 220 ms.
+ */
+check('a settled piece has the full shadow', close(shadowAlpha(1, 1), SHADOW_ALPHA))
+
+check('a removed piece takes its shadow with it', close(shadowAlpha(1, 0), 0))
+
+check(
+  'the shadow fades all the way through the vanish, not at the end of it',
+  (() => {
+    const steps = [1, 0.75, 0.5, 0.25, 0].map((fade) => shadowAlpha(1, fade))
+    return steps.every((a, i) => i === 0 || a < steps[i - 1])
+  })(),
+)
+
+check(
+  'the shadow leads the drop, and never darkens past a settled one',
+  (() => {
+    const early = shadowAlpha(0.2, 1)
+    const landing = shadowAlpha(0.72, 1)
+    return early > 0 && early < SHADOW_ALPHA && close(landing, SHADOW_ALPHA) && shadowAlpha(1.4, 1) <= SHADOW_ALPHA
   })(),
 )
 

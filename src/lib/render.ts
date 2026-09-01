@@ -432,13 +432,36 @@ function drawRoom(ctx: CanvasRenderingContext2D, t: Transform, scene: Scene) {
 }
 
 /** Soft contact shadow so items do not look like they float. */
-function drawShadow(ctx: CanvasRenderingContext2D, t: Transform, b: { vx0: number; vy0: number; vx1: number; vy1: number }) {
+/** How dark a piece's shadow is once it has settled. */
+export const SHADOW_ALPHA = 0.18
+
+/**
+ * How dark the shadow is mid-animation.
+ *
+ * It has to be passed in rather than left to the canvas: `globalAlpha` does
+ * not nest, so a routine that sets it throws away whatever the caller set, and
+ * this one used to. The shadow then held full strength through the whole
+ * vanish and blinked out at the end, leaving a piece's shade on the floor
+ * after the piece had gone.
+ *
+ * The shadow leads the drop slightly on the way in -- it is most of the way
+ * there before the piece lands -- which is what makes the landing read as a
+ * landing rather than a fade.
+ */
+export const shadowAlpha = (appear: number, fade: number) => SHADOW_ALPHA * fade * clamp01(appear * 1.4)
+
+function drawShadow(
+  ctx: CanvasRenderingContext2D,
+  t: Transform,
+  b: { vx0: number; vy0: number; vx1: number; vy1: number },
+  alpha: number,
+) {
   const p = (vx: number, vy: number): [number, number] => {
     const s = t.toScreen(vx, vy, 0)
     return [s.x, s.y]
   }
   ctx.save()
-  ctx.globalAlpha = 0.18
+  ctx.globalAlpha = alpha
   fillQuad(ctx, [p(b.vx0, b.vy0), p(b.vx1, b.vy0), p(b.vx1, b.vy1), p(b.vx0, b.vy1)], '#000000')
   ctx.restore()
 }
@@ -534,10 +557,7 @@ export function renderScene(
     const lift = (1 - easeOutCubic(appear)) * 26
 
     if (mode === 'display' && placed.z === 0 && fade > 0) {
-      ctx.save()
-      ctx.globalAlpha = fade * clamp01(appear * 1.4)
-      drawShadow(ctx, t, bounds)
-      ctx.restore()
+      drawShadow(ctx, t, bounds, shadowAlpha(appear, fade))
     }
 
     ctx.save()
@@ -575,7 +595,7 @@ export function renderScene(
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillStyle = readableOn(color)
-        ctx.globalAlpha = 0.85
+        ctx.globalAlpha *= 0.85
         ctx.fillText(cat.systemLabel, centre.x, centre.y)
         ctx.restore()
       }

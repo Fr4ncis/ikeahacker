@@ -124,12 +124,13 @@ export function RoomCanvas({
       const pulsing = selectedUid !== null && now - selectedAtRef.current < SELECT_PULSE_MS
       const busy = settling || pulsing || ghostsRef.current.length > 0
 
-      if (busy) {
-        setFrame((f) => f + 1)
-        raf = requestAnimationFrame(tick)
-      } else {
-        raf = 0
-      }
+      // One more frame after the last busy one, always. The tick that ends an
+      // animation is the tick that drops the ghost that was being drawn, and
+      // stopping there leaves that last mid-animation frame on the canvas
+      // until something else happens to repaint it -- which looked like a
+      // removed piece leaving its shadow behind on the floor.
+      setFrame((f) => f + 1)
+      raf = busy ? requestAnimationFrame(tick) : 0
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
