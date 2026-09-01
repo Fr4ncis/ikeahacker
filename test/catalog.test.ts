@@ -12,8 +12,22 @@ const here = dirname(fileURLToPath(import.meta.url))
 const catalog = JSON.parse(readFileSync(resolve(here, '../public/catalog.json'), 'utf8')) as Catalog
 ;(globalThis as unknown as { fetch: unknown }).fetch = async () => ({ ok: true, status: 200, json: async () => catalog })
 
-const { EMPTY_FILTERS, clearSizes, filterGroups, formatPriceRange, loadCatalog, sizeFacets, sizeOf, toggleSize } =
-  await import('../src/lib/catalog.ts')
+const {
+  DIMENSIONS,
+  EMPTY_FILTERS,
+  clearSizes,
+  filterGroups,
+  formatPriceRange,
+  hasAnyFilter,
+  loadCatalog,
+  setSizes,
+  sizeBands,
+  sizeFacets,
+  sizeOf,
+  summariseSizes,
+  toggleBand,
+  toggleSize,
+} = await import('../src/lib/catalog.ts')
 await loadCatalog('ignored')
 
 let failures = 0
@@ -247,9 +261,22 @@ check(
 
 check('toggling a size on and off returns to where it started',
   (() => {
-    const on = toggleSize(EMPTY_FILTERS, 'widths', 80)
-    const off = toggleSize(on, 'widths', 80)
-    return on.widths.join() === '80' && off.widths.length === 0
+    const on = toggleSize([], 80)
+    const off = toggleSize(on, 80)
+    return on.join() === '80' && off.length === 0 && toggleSize([40, 80], 40).join() === '80'
+  })(),
+)
+
+check('taking a bracket takes all of it, and taking it again gives all of it back',
+  (() => {
+    const bracket = [100, 102, 103]
+    const taken = toggleBand([80], bracket)
+    return (
+      taken.join() === '80,100,102,103' &&
+      toggleBand(taken, bracket).join() === '80' &&
+      // Part of it already chosen means you wanted more of it, not less.
+      toggleBand([102], bracket).sort((a, b) => a - b).join() === '100,102,103'
+    )
   })(),
 )
 
@@ -269,6 +296,112 @@ check(
     const { matches } = filterGroups({ ...EMPTY_FILTERS, system: 'BILLY', widths: [80] }, 1e6)
     return matches.length > 0 && matches.every((m) => m.group.system === 'BILLY' && sizeOf(m.group, 'widths') === 80)
   })(),
+)
+
+// --- Size brackets ----------------------------------------------------------
+
+const widthBands = sizeBands(facets.widths)
+
+check(
+  `a long list of sizes is bracketed (${facets.widths.length} widths into ${widthBands.length})`,
+  widthBands.length > 1 && widthBands.length * 2 <= facets.widths.length,
+)
+
+check(
+  'a short list is left as the exact sizes',
+  DIMENSIONS.every((d) => {
+    const options = sizeFacets({ ...EMPTY_FILTERS, system: 'BILLY' })[d]
+    return options.length < 10 && sizeBands(options).length === 0
+  }),
+)
+
+check(
+  'brackets cover every size exactly once, in order',
+  (() => {
+    const covered = widthBands.flatMap((b) => b.values)
+    return covered.join() === facets.widths.map((o) => o.value).join()
+  })(),
+)
+
+check(
+  'a bracket is labelled by the sizes it holds, not by the round numbers around them',
+  widthBands.every((b) => b.values.includes(b.lo) && b.values.includes(b.hi) && b.lo <= b.hi),
+  JSON.stringify(widthBands.map((b) => `${b.lo}-${b.hi}`)),
+)
+
+check(
+  // Every product has one width, so the counts partition rather than overlap.
+  'taking a whole bracket returns exactly the products it promises',
+  widthBands.every((b) => filterGroups({ ...EMPTY_FILTERS, widths: b.values }, 1e6).total === b.count),
+)
+
+check(
+  'the brackets between them account for the whole catalogue',
+  widthBands.reduce((sum, b) => sum + b.count, 0) === all.total,
+)
+
+// --- Saying what is selected -------------------------------------------------
+
+const paxWidths = sizeFacets({ ...EMPTY_FILTERS, system: 'PAX' }).widths.map((o) => o.value)
+
+check('one size is said plainly', summariseSizes([100], paxWidths) === '100')
+
+check(
+  'sizes that are neighbours in what is on offer read as a range',
+  (() => {
+    // Neighbouring in the list, not in centimetres: PAX widths step 35, 50, 75,
+    // so those three are "35-75" while 35 and 75 alone stay two separate sizes.
+    const [a, b, c] = paxWidths.slice(1, 4)
+    return summariseSizes([a, b, c], paxWidths) === `${a}–${c}` && summariseSizes([a, c], paxWidths) === `${a}, ${c}`
+  })(),
+  JSON.stringify(paxWidths.slice(0, 5)),
+)
+
+check(
+  'a run against either end reads as an open range',
+  summariseSizes(paxWidths.filter((v) => v <= 100), paxWidths) === 'up to 100' &&
+    summariseSizes(paxWidths.filter((v) => v >= 300), paxWidths) === '300 and over',
+)
+
+check('everything on offer is any size at all', summariseSizes(paxWidths, paxWidths) === 'any')
+
+check(
+  'a long scatter of sizes is cut short rather than overflowing',
+  summariseSizes([20, 50, 100, 200], paxWidths) === '20, 50 +2 more',
+)
+
+check(
+  // Narrowing the other filters can strand a size that is no longer offered.
+  // It must still be listed, since it is still filtering.
+  'a size that is no longer on offer is still named',
+  summariseSizes([9999, 100], paxWidths) === '100, 9999',
+)
+
+check('nothing selected says nothing', summariseSizes([], paxWidths) === '')
+
+check(
+  'setting a dimension replaces it, sorted, and leaves the others alone',
+  (() => {
+    const f = setSizes({ ...EMPTY_FILTERS, widths: [80], heights: [202] }, 'widths', [120, 40])
+    return f.widths.join() === '40,120' && f.heights.join() === '202'
+  })(),
+)
+
+check(
+  'setting a dimension to nothing clears only that dimension',
+  (() => {
+    const f = setSizes({ ...EMPTY_FILTERS, system: 'PAX', widths: [50], heights: [201] }, 'widths', [])
+    return !f.widths.length && f.heights.join() === '201' && f.system === 'PAX'
+  })(),
+)
+
+check(
+  'anything narrowing the catalogue counts as a filter',
+  !hasAnyFilter(EMPTY_FILTERS) &&
+    hasAnyFilter({ ...EMPTY_FILTERS, query: 'billy' }) &&
+    hasAnyFilter({ ...EMPTY_FILTERS, system: 'PAX' }) &&
+    hasAnyFilter({ ...EMPTY_FILTERS, category: 'shelving' }) &&
+    hasAnyFilter({ ...EMPTY_FILTERS, heights: [202] }),
 )
 
 // --- Right-click needs a usable link -----------------------------------------

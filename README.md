@@ -52,6 +52,20 @@ choice does not collapse its own list, so you can switch between sizes rather
 than having to clear first. One button restricts every dimension to what will
 physically go in the room.
 
+With nothing else chosen there are 184 distinct widths, which is a wall of
+numbers rather than a choice, so a long list is folded into a handful of
+brackets first. A bracket filters on its own — most of the time "about 100
+wide" is the whole intent — and the ⋯ beside it opens the exact sizes within,
+for when it matters that the shelf is 95 and not 100. A bracket you have picked
+part of is shown half-lit, and it is labelled by the sizes it holds rather than
+the round numbers around them.
+
+Anything you have chosen can be dropped again from where you can see it: each
+dimension carries what it is filtering on and a × next to it, every filter can
+be cleared from its header without opening it, and one link clears the lot. A
+selection is described by the sizes it spans, so a bracket reads "100–148" and
+a room fit reads "up to 241" rather than a list of every value in between.
+
 Hovering a product opens a detail card beside the list — large photo, full
 measurements, finish, price and article number. It opens to the side rather
 than over the list, so running down the products never covers the one you are
@@ -205,6 +219,18 @@ pill, and modular values like PAX's 50 / 75 / 100 are untouched.
 Each dimension's facet is computed with every other filter applied but its own
 selection ignored, which is what lets you switch from "80 wide" to "100 wide"
 directly instead of the list collapsing to the one size already chosen.
+
+Brackets are chosen by trying round steps — 5, 10, 20, 25, 50 cm and up — and
+taking the first that leaves at most eight, and only when that at least halves
+the number of things to read. Because a product has one width, the counts on
+the brackets partition rather than overlap, and taking a whole bracket returns
+exactly the number it promises.
+
+What a selection is called is worked out against the sizes on offer *before*
+any size filter, not the contextual list. The contextual list moves under a
+selection — take widths 100 to 148, then choose a height, and some of those
+widths no longer exist — and describing the selection against a list it no
+longer sits in turns a run back into "100, 102 +27 more".
 
 ### Walls of an irregular room
 

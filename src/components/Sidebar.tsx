@@ -4,18 +4,25 @@ import {
   DIMENSIONS,
   DIMENSION_LABELS,
   EMPTY_FILTERS,
+  bandLabel,
   categories,
   clearSizes,
   filterGroups,
   formatPrice,
   formatPriceRange,
   getCatalog,
+  hasAnyFilter,
   hasSizeFilter,
+  setSizes,
+  sizeBands,
   sizeFacets,
+  summariseSizes,
+  toggleBand,
   toggleSize,
   type Dimension,
   type Filters,
   type GroupMatch,
+  type SizeOption,
 } from '../lib/catalog'
 import { Sound } from '../lib/sound'
 import { ProductPreview, type PreviewTarget } from './ProductPreview'
@@ -127,22 +134,156 @@ function Facet({
 }) {
   return (
     <section className={`facet ${open ? 'facet--open' : ''}`}>
-      <button className="facet-head" onClick={onToggle} aria-expanded={open}>
-        <span className="facet-caret" aria-hidden="true" />
-        <span className="facet-title">{title}</span>
-        <span className={`facet-summary ${onClear ? 'facet-summary--on' : ''}`}>{summary}</span>
-      </button>
-      {open && (
-        <div className="facet-body">
-          {children}
-          {onClear && (
-            <button className="facet-clear" onClick={onClear}>
-              Clear {title.toLowerCase()}
+      {/* The clear sits beside the toggle rather than inside it: a button
+          cannot hold a button, and clearing has to work while closed. */}
+      <div className="facet-head">
+        <button className="facet-toggle" onClick={onToggle} aria-expanded={open}>
+          <span className="facet-caret" aria-hidden="true" />
+          <span className="facet-title">{title}</span>
+          <span className={`facet-summary ${onClear ? 'facet-summary--on' : ''}`}>{summary}</span>
+        </button>
+        {onClear && (
+          <button className="facet-reset" onClick={onClear} title={`Clear ${title.toLowerCase()}`}>
+            <span aria-hidden="true">×</span>
+            <span className="sr-only">Clear {title.toLowerCase()}</span>
+          </button>
+        )}
+      </div>
+      {open && <div className="facet-body">{children}</div>}
+    </section>
+  )
+}
+
+/**
+ * The sizes available in one dimension, as something you can actually pick from.
+ *
+ * Short lists are the exact sizes, which is the whole point of contextual
+ * facets: pick BILLY and the widths are 40, 80, 95, 120. Long ones are folded
+ * into brackets first, because with no system chosen there are 184 distinct
+ * widths and no one reads those. A bracket filters on its own -- most people
+ * want "about 100 wide" -- and opens to the exact sizes for anyone who does
+ * care that it is 95 and not 100.
+ */
+function DimensionPicker({
+  dimension,
+  options,
+  chosen,
+  summary,
+  onChange,
+}: {
+  dimension: Dimension
+  options: SizeOption[]
+  chosen: number[]
+  summary: string
+  onChange: (values: number[]) => void
+}) {
+  const [openBand, setOpenBand] = useState<number | null>(null)
+  const label = DIMENSION_LABELS[dimension]
+  const bands = useMemo(() => sizeBands(options), [options])
+  // Keyed on the band's first size rather than its index: the other filters can
+  // reshape the list underneath, and then falling back to the brackets is right.
+  const band = bands.find((b) => b.lo === openBand) ?? null
+
+  const pick = (values: number[]) => {
+    onChange(values)
+    Sound.tick()
+  }
+
+  const sizePill = (o: SizeOption) => (
+    <button
+      key={o.value}
+      className={`pill pill--size ${chosen.includes(o.value) ? 'pill--on' : ''}`}
+      onClick={() => pick(toggleSize(chosen, o.value))}
+      title={`${o.count} product${o.count === 1 ? '' : 's'} ${o.value} cm ${dimension.slice(0, -1)}`}
+    >
+      {o.value}
+      <span className="pill-count">{o.count}</span>
+    </button>
+  )
+
+  return (
+    <div className="dimension">
+      <div className="dimension-head">
+        <span className="dimension-label">
+          {label} <em>cm</em>
+        </span>
+        {chosen.length > 0 && (
+          <>
+            <span className="dimension-pick">{summary}</span>
+            <button className="dimension-clear" onClick={() => onChange([])} title={`Clear ${label.toLowerCase()}`}>
+              <span aria-hidden="true">×</span>
+              <span className="sr-only">Clear {label.toLowerCase()}</span>
             </button>
-          )}
+          </>
+        )}
+      </div>
+
+      {!options.length && <p className="empty-note empty-note--inline">Nothing at this size.</p>}
+
+      {options.length > 0 && band && (
+        <div className="pills pills--scroll pills--sizes">
+          <button className="pill pill--back" onClick={() => setOpenBand(null)}>
+            ‹ All {dimension}
+          </button>
+          <button
+            className={`pill pill--size ${band.values.every((v) => chosen.includes(v)) ? 'pill--on' : ''}`}
+            onClick={() => pick(toggleBand(chosen, band.values))}
+          >
+            Any {bandLabel(band)}
+            <span className="pill-count">{band.count}</span>
+          </button>
+          {options.filter((o) => o.value >= band.lo && o.value <= band.hi).map(sizePill)}
         </div>
       )}
-    </section>
+
+      {options.length > 0 && !band && bands.length > 0 && (
+        /* Not bounded like the size lists: there are at most eight brackets and
+           hiding one behind a scroll would defeat the point of having them. */
+        <div className="pills">
+          {bands.map((b) => {
+            const picked = b.values.filter((v) => chosen.includes(v)).length
+            const state = picked === 0 ? '' : picked === b.values.length ? 'pill--on' : 'pill--part'
+            const take = (
+              <button
+                className="pill-take"
+                onClick={() => pick(toggleBand(chosen, b.values))}
+                title={`${b.count} product${b.count === 1 ? '' : 's'}, ${bandLabel(b)} cm ${label.toLowerCase()}`}
+              >
+                {bandLabel(b)}
+                <span className="pill-count">{b.count}</span>
+              </button>
+            )
+            // A bracket holding one size has nothing to open into.
+            if (b.values.length === 1) {
+              return (
+                <span key={b.lo} className={`pill pill--size pill--split ${state}`}>
+                  {take}
+                </span>
+              )
+            }
+            return (
+              <span key={b.lo} className={`pill pill--size pill--split ${state}`}>
+                {take}
+                <button
+                  className="pill-open"
+                  onClick={() => setOpenBand(b.lo)}
+                  title={`Pick an exact ${label.toLowerCase()} between ${b.lo} and ${b.hi} cm`}
+                >
+                  <span aria-hidden="true">⋯</span>
+                  <span className="sr-only">
+                    Exact sizes between {b.lo} and {b.hi} cm
+                  </span>
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {options.length > 0 && !band && !bands.length && (
+        <div className="pills pills--scroll pills--sizes">{options.map(sizePill)}</div>
+      )}
+    </div>
   )
 }
 
@@ -209,25 +350,38 @@ export function Sidebar({
 
   const { matches, total } = useMemo(() => filterGroups(filters, 400), [filters])
   const facets = useMemo(() => (open === 'size' ? sizeFacets(filters) : null), [filters, open])
+
+  /**
+   * The sizes on offer before any size is chosen.
+   *
+   * Selections are described against this rather than against the contextual
+   * facets, which shift under them: having taken widths 100 to 148, choosing a
+   * height drops some of those widths from the offer and the run would fall
+   * apart into "100, 102 +27 more" without the sizes having changed at all.
+   */
+  const anySize = useMemo(
+    () => sizeFacets(clearSizes(filters)),
+    [filters.query, filters.category, filters.system],
+  )
+  const picked = (d: Dimension) => summariseSizes(filters[d], anySize[d].map((o) => o.value))
   const visible = matches.slice(0, shown)
   const activeSystem = catalog.systems.find((s) => s.id === filters.system)
   const sizeActive = hasSizeFilter(filters)
 
   const sizeSummary = sizeActive
     ? DIMENSIONS.filter((d) => filters[d].length)
-        .map((d) => `${DIMENSION_LABELS[d].toLowerCase()} ${filters[d].join(', ')}`)
+        .map((d) => `${DIMENSION_LABELS[d].toLowerCase()} ${picked(d)}`)
         .join(' · ')
     : 'Any size'
 
   /** Restricts every dimension to sizes that will physically go in the room. */
   const fitToRoom = () => {
     const limits: Record<Dimension, number> = { widths: room.width, depths: room.depth, heights: room.height }
-    const available = sizeFacets(clearSizes(filters))
     update({
       ...filters,
-      widths: available.widths.filter((o) => o.value <= limits.widths).map((o) => o.value),
-      depths: available.depths.filter((o) => o.value <= limits.depths).map((o) => o.value),
-      heights: available.heights.filter((o) => o.value <= limits.heights).map((o) => o.value),
+      widths: anySize.widths.filter((o) => o.value <= limits.widths).map((o) => o.value),
+      depths: anySize.depths.filter((o) => o.value <= limits.depths).map((o) => o.value),
+      heights: anySize.heights.filter((o) => o.value <= limits.heights).map((o) => o.value),
     })
   }
 
@@ -301,45 +455,38 @@ export function Sidebar({
           onClear={sizeActive ? () => update(clearSizes(filters)) : undefined}
         >
           {facets &&
-            DIMENSIONS.map((dimension) => {
-              const options = facets[dimension]
-              const chosen = filters[dimension]
-              return (
-                <div className="dimension" key={dimension}>
-                  <span className="dimension-label">
-                    {DIMENSION_LABELS[dimension]} <em>cm</em>
-                  </span>
-                  {options.length ? (
-                    <div className="pills pills--scroll pills--sizes">
-                      {options.map((o) => (
-                        <button
-                          key={o.value}
-                          className={`pill pill--size ${chosen.includes(o.value) ? 'pill--on' : ''}`}
-                          onClick={() => {
-                            update(toggleSize(filters, dimension, o.value))
-                            Sound.tick()
-                          }}
-                          title={`${o.count} product${o.count === 1 ? '' : 's'}`}
-                        >
-                          {o.value}
-                          <span className="pill-count">{o.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="empty-note empty-note--inline">Nothing at this size.</p>
-                  )}
-                </div>
-              )
-            })}
-          <button className="fit-room" onClick={fitToRoom}>
-            Only what fits the room ({room.width} × {room.depth} × {room.height} cm)
-          </button>
+            DIMENSIONS.map((dimension) => (
+              <DimensionPicker
+                key={dimension}
+                dimension={dimension}
+                options={facets[dimension]}
+                chosen={filters[dimension]}
+                summary={picked(dimension)}
+                onChange={(values) => update(setSizes(filters, dimension, values))}
+              />
+            ))}
+          <div className="size-actions">
+            <button className="fit-room" onClick={fitToRoom}>
+              Only what fits the room ({room.width} × {room.depth} × {room.height} cm)
+            </button>
+            {sizeActive && (
+              <button className="fit-room fit-room--clear" onClick={() => update(clearSizes(filters))}>
+                Any size
+              </button>
+            )}
+          </div>
         </Facet>
       </div>
 
       <div className="results-count">
-        {total.toLocaleString()} product{total === 1 ? '' : 's'}
+        <span>
+          {total.toLocaleString()} product{total === 1 ? '' : 's'}
+        </span>
+        {hasAnyFilter(filters) && (
+          <button className="results-clear" onClick={() => update(EMPTY_FILTERS)}>
+            Clear all filters
+          </button>
+        )}
       </div>
 
       <div className="item-list" onScroll={() => showPreview(null, 0, null)}>

@@ -193,14 +193,15 @@ export const sizeOf = (group: ProductGroup, dimension: Dimension) => Math.round(
 
 export const hasSizeFilter = (f: Filters) => DIMENSIONS.some((d) => f[d].length > 0)
 
-/** Toggles one value in a dimension, since sizes are multi-select. */
-export function toggleSize(filters: Filters, dimension: Dimension, value: number): Filters {
-  const current = filters[dimension]
-  return {
-    ...filters,
-    [dimension]: current.includes(value) ? current.filter((v) => v !== value) : [...current, value].sort((a, b) => a - b),
-  }
-}
+/** Adds or removes one size, since sizes are multi-select. */
+export const toggleSize = (chosen: number[], value: number): number[] =>
+  chosen.includes(value) ? chosen.filter((v) => v !== value) : [...chosen, value]
+
+/** Takes a whole bracket, or gives it back when all of it is already taken. */
+export const toggleBand = (chosen: number[], band: number[]): number[] =>
+  band.every((v) => chosen.includes(v))
+    ? chosen.filter((v) => !band.includes(v))
+    : [...chosen, ...band.filter((v) => !chosen.includes(v))]
 
 export function clearSizes(filters: Filters): Filters {
   return { ...filters, widths: [], depths: [], heights: [] }
@@ -286,6 +287,107 @@ export function sizeFacets(filters: Filters): Record<Dimension, SizeOption[]> {
 
 const toOptions = (tally: Map<number, number>): SizeOption[] =>
   [...tally.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => a.value - b.value)
+
+/** A run of neighbouring sizes, offered as one choice when the exact list is too long. */
+export interface SizeBand {
+  /** The smallest and largest size actually present, not the round bracket they fall in. */
+  lo: number
+  hi: number
+  count: number
+  values: number[]
+}
+
+/**
+ * Below this many sizes the exact list is short enough to read at a glance, so
+ * it is shown as it is: BILLY's nine widths and PAX's four heights stay one
+ * click away. Above it the list becomes a wall of numbers, and with no system
+ * chosen there are 184 distinct widths.
+ */
+const BAND_FROM = 18
+/** Enough brackets to see the shape of the range, few enough to scan in one row or two. */
+const MAX_BANDS = 8
+/** Bracket widths worth reading, smallest first. */
+const BAND_STEPS = [5, 10, 20, 25, 50, 100, 200, 500]
+
+function bandsAt(options: SizeOption[], step: number): SizeBand[] {
+  const bands = new Map<number, SizeBand>()
+  for (const o of options) {
+    const bracket = Math.floor(o.value / step) * step
+    let band = bands.get(bracket)
+    if (!band) bands.set(bracket, (band = { lo: o.value, hi: o.value, count: 0, values: [] }))
+    // A band is labelled by the sizes it holds rather than by its bracket, so
+    // the widths 15 to 49 read "15-49" and not "0-49".
+    band.hi = o.value
+    band.count += o.count
+    band.values.push(o.value)
+  }
+  return [...bands.entries()].sort((a, b) => a[0] - b[0]).map(([, band]) => band)
+}
+
+/**
+ * Groups a long list of sizes into a handful of brackets to pick from.
+ *
+ * The counts add up exactly, because a product has one width and so lands in
+ * one bracket. Returns nothing when the list is already short, or when
+ * bracketing it would not save the reader enough to be worth the extra step.
+ */
+export function sizeBands(options: SizeOption[]): SizeBand[] {
+  if (options.length < BAND_FROM) return []
+  for (const step of BAND_STEPS) {
+    const bands = bandsAt(options, step)
+    if (bands.length <= MAX_BANDS && bands.length * 2 <= options.length) return bands
+  }
+  return []
+}
+
+/** Replaces one dimension's selection outright. Passing none clears it. */
+export function setSizes(filters: Filters, dimension: Dimension, values: number[]): Filters {
+  return { ...filters, [dimension]: [...values].sort((a, b) => a - b) }
+}
+
+/**
+ * A selection written the way you would say it: "80", "80-120", "up to 60".
+ *
+ * Runs are consecutive in what is *available*, not in whole centimetres, so
+ * picking every PAX width reads "50-100" rather than listing 50, 75 and 100.
+ */
+export function summariseSizes(selected: number[], available: number[]): string {
+  if (!selected.length) return ''
+  const order = new Map(available.map((v, i) => [v, i]))
+  const sorted = [...selected].sort((a, b) => a - b)
+
+  const runs: number[][] = []
+  for (const value of sorted) {
+    const last = runs[runs.length - 1]
+    const prev = last?.[last.length - 1]
+    // A size that is no longer available (the other filters moved under it)
+    // cannot continue a run, since it has no place in the order.
+    const follows =
+      last !== undefined && prev !== undefined && order.has(value) && order.has(prev) && order.get(value) === order.get(prev)! + 1
+    if (follows) last.push(value)
+    else runs.push([value])
+  }
+
+  const first = available[0]
+  const last = available[available.length - 1]
+  const text = runs.map((run) => {
+    const [lo, hi] = [run[0], run[run.length - 1]]
+    if (lo === hi) return `${lo}`
+    if (lo === first && hi === last) return 'any'
+    if (lo === first) return `up to ${hi}`
+    if (hi === last) return `${lo} and over`
+    return `${lo}–${hi}`
+  })
+
+  return text.length <= 2 ? text.join(', ') : `${text.slice(0, 2).join(', ')} +${text.length - 2} more`
+}
+
+/** "80" for a bracket holding one size, "100–148" for the rest. */
+export const bandLabel = (band: SizeBand) => (band.lo === band.hi ? `${band.lo}` : `${band.lo}–${band.hi}`)
+
+/** Is anything at all narrowing the catalogue down? */
+export const hasAnyFilter = (f: Filters) =>
+  f.query.trim() !== '' || f.category !== 'all' || f.system !== 'all' || hasSizeFilter(f)
 
 export function formatPrice(price: number | null, currency: string): string {
   if (price === null) return '—'

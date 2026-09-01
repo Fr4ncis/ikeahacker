@@ -53,7 +53,9 @@ kbd {
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 300px;
+  /* The catalogue is the busiest column: product names, sizes and a price on
+     one line, and filter pills that wrap. It gets the extra width. */
+  grid-template-columns: 372px minmax(0, 1fr) 300px;
   min-height: 0;
 }
 
@@ -61,11 +63,11 @@ kbd {
    Below the floor width the whole app scrolls rather than collapsing, since a
    planner needs the catalogue and the room side by side to be any use. */
 @media (max-width: 1280px) {
-  .workspace { grid-template-columns: 272px minmax(0, 1fr) 264px; }
+  .workspace { grid-template-columns: 316px minmax(0, 1fr) 264px; }
 }
 
 @media (max-width: 1080px) {
-  .workspace { grid-template-columns: 244px minmax(0, 1fr) 240px; }
+  .workspace { grid-template-columns: 284px minmax(0, 1fr) 240px; }
   .toolbar { gap: 8px; }
   .brand-sub { display: none; }
 }
@@ -284,12 +286,18 @@ kbd {
 .facet + .facet { border-top: 1px solid var(--line); }
 
 .facet-head {
+  display: flex;
+  align-items: stretch;
+}
+
+.facet-toggle {
   display: grid;
   grid-template-columns: 12px auto minmax(0, 1fr);
   align-items: baseline;
   gap: 6px;
-  width: 100%;
-  padding: 8px 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px 8px 12px;
   background: none;
   border: 0;
   text-align: left;
@@ -298,6 +306,19 @@ kbd {
 .facet-head:hover { background: var(--panel-2); }
 
 .facet--open .facet-head { background: var(--panel-2); }
+
+/* Clearing a filter must not cost you a trip through opening it first. */
+.facet-reset {
+  flex: none;
+  padding: 0 10px;
+  background: none;
+  border: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.facet-reset:hover { color: var(--danger); }
 
 .facet-caret {
   /* Drawn rather than typed: the triangle glyphs do not render in this stack. */
@@ -339,17 +360,17 @@ kbd {
   gap: 8px;
 }
 
-.facet-clear {
-  align-self: flex-start;
-  background: none;
-  border: 0;
+/* Visible to a screen reader, out of the way of everything else. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   padding: 0;
-  font-size: 11px;
-  color: var(--muted);
-  text-decoration: underline;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
-
-.facet-clear:hover { color: var(--danger); }
 
 /* ---------- Filter pills ---------- */
 
@@ -367,8 +388,13 @@ kbd {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent 100%);
 }
 
-/* Two rows of sizes, so three dimensions do not push the products off screen. */
-.pills--sizes { max-height: 62px; }
+/* Three rows of sizes, so three dimensions do not push the products off screen.
+   It carries its own overflow rather than leaning on .pills--scroll: a height
+   cap without one does not clip, it draws over the next dimension's label. */
+.pills--sizes {
+  max-height: 84px;
+  overflow-y: auto;
+}
 
 .pill {
   display: inline-flex;
@@ -390,14 +416,68 @@ kbd {
   color: #fff;
 }
 
+/* Pointing at something already chosen must not hide what it says: the plain
+   hover is a specificity win over .pill--on, and white text on a near-white
+   ground is unreadable. */
+.pill--on:hover,
+.chip--on:hover { background: #17715f; }
+
 .pill--size { font-variant-numeric: tabular-nums; }
 
 .pill-count { font-size: 10px; opacity: 0.6; }
+
+/* Some of the bracket is picked but not all of it, so it can be neither plain
+   nor filled without saying something untrue. */
+.pill--part {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pill--back {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+/* A bracket does two things: filter by itself, or open to its exact sizes.
+   One pill, split, rather than two controls for one range. */
+.pill--split { padding: 0; }
+
+.pill--split > button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  font: inherit;
+  font-variant-numeric: inherit;
+  color: inherit;
+}
+
+.pill-open {
+  padding-inline: 7px;
+  border-left: 1px solid var(--line);
+  opacity: 0.5;
+}
+
+.pill--on .pill-open { border-left-color: rgba(255, 255, 255, 0.4); }
+.pill--part .pill-open { border-left-color: var(--accent); }
+
+.pill--split > button:hover { background: rgba(28, 27, 25, 0.07); }
+.pill-open:hover { opacity: 1; }
 
 .dimension {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.dimension-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .dimension-label {
@@ -407,6 +487,30 @@ kbd {
 
 .dimension-label em { font-style: normal; opacity: 0.65; }
 
+/* What is picked, said in words, next to the way to undo it. */
+.dimension-pick {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dimension-clear {
+  flex: none;
+  padding: 0 2px;
+  background: none;
+  border: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.dimension-clear:hover { color: var(--danger); }
+
 .system-blurb {
   margin: 0;
   font-size: 11.5px;
@@ -414,7 +518,10 @@ kbd {
   line-height: 1.4;
 }
 
+.size-actions { display: flex; gap: 6px; }
+
 .fit-room {
+  flex: 1;
   padding: 5px;
   font-size: 11px;
   background: var(--panel);
@@ -425,15 +532,32 @@ kbd {
 
 .fit-room:hover { color: var(--ink); border-color: var(--accent); }
 
+.fit-room--clear { flex: none; }
+
 .empty-note--inline { margin: 0; font-size: 11px; }
 
 .results-count {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   padding: 7px 12px;
   font-size: 11px;
   color: var(--muted);
   background: var(--panel-2);
   border-bottom: 1px solid var(--line);
 }
+
+.results-clear {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.results-clear:hover { color: var(--danger); }
 
 .item-list {
   flex: 1;

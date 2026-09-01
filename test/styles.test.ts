@@ -60,5 +60,18 @@ check(
   /object-fit:\s*contain/.test(ruleBody('.preview-image img')),
 )
 
+// A capped list that cannot scroll does not clip: the rows past the cap are
+// painted over whatever comes next, which is how the size brackets came to sit
+// on top of the following dimension's label.
+const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
+for (const [, selector, body] of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  if (!/max-height:\s*\d/.test(body)) continue
+  check(
+    `${selector.trim()} scrolls what it cuts off`,
+    /overflow(-y)?:\s*(auto|scroll|hidden)/.test(body),
+    'a height cap with no overflow rule overlaps the block below it',
+  )
+}
+
 console.log(failures ? `\n${failures} failing` : `\nall passing`)
 process.exit(failures ? 1 : 0)
