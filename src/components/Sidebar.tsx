@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CATEGORY_LABELS,
+  DEFAULT_RETAILER,
   DIMENSIONS,
   DIMENSION_LABELS,
   EMPTY_FILTERS,
@@ -14,6 +15,7 @@ import {
   groupOf,
   hasAnyFilter,
   hasSizeFilter,
+  retailers,
   setSizes,
   sizeBands,
   sizeFacets,
@@ -349,13 +351,18 @@ export function Sidebar({
   }
   const patch = (p: Partial<Filters>) => update({ ...filters, ...p })
 
+  // The system list is narrowed by the shop as well as the category, because
+  // one retailer alone contributes a few hundred of them.
   const systems = useMemo(
     () =>
       catalog.systems
+        .filter((s) => filters.retailer === 'all' || (s.retailer ?? DEFAULT_RETAILER) === filters.retailer)
         .filter((s) => filters.category === 'all' || s.category === filters.category)
         .sort((a, b) => b.count - a.count),
-    [catalog.systems, filters.category],
+    [catalog.systems, filters.retailer, filters.category],
   )
+
+  const shops = useMemo(() => retailers(), [])
 
   const { matches, total } = useMemo(() => filterGroups(filters, 400), [filters])
   const facets = useMemo(() => (open === 'size' ? sizeFacets(filters) : null), [filters, open])
@@ -370,7 +377,7 @@ export function Sidebar({
    */
   const anySize = useMemo(
     () => sizeFacets(clearSizes(filters)),
-    [filters.query, filters.category, filters.system],
+    [filters.query, filters.retailer, filters.category, filters.system],
   )
   const picked = (d: Dimension) => summariseSizes(filters[d], anySize[d].map((o) => o.value))
   const visible = matches.slice(0, shown)
@@ -405,6 +412,25 @@ export function Sidebar({
           value={filters.query}
           onChange={(e) => patch({ query: e.target.value })}
         />
+        {shops.length > 1 && (
+          <div className="chips chips--shops">
+            <button
+              className={`chip ${filters.retailer === 'all' ? 'chip--on' : ''}`}
+              onClick={() => patch({ retailer: 'all', system: 'all' })}
+            >
+              Every shop
+            </button>
+            {shops.map((r) => (
+              <button
+                key={r}
+                className={`chip ${filters.retailer === r ? 'chip--on' : ''}`}
+                onClick={() => patch({ retailer: r, system: 'all' })}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="chips">
           <button
             className={`chip ${filters.category === 'all' ? 'chip--on' : ''}`}

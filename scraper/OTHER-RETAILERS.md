@@ -155,6 +155,10 @@ None of this fits `CatalogItem` as it stands. `id` is documented as an IKEA arti
 number, `system`/`systemLabel` as an IKEA system, and `scraper/systems.ts` is a list of
 IKEA search phrases.
 
+Dunelm is now wired in: `loadCatalog` merges `catalog-dunelm.json` beside `catalog.json`,
+`retailer` is an optional field read as IKEA when absent, and the sidebar grows a shop
+row when more than one is present. What follows is what that had to respect.
+
 The share encoding is the constraint to check first. `src/lib/layout.ts` packs `itemId`
 through `Number()` and re-pads with `padStart(8, '0')` on the way back, so an id only
 survives if it is numeric and has no leading zero past the eighth digit. Both retailers

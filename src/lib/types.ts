@@ -29,10 +29,21 @@ export interface SystemDef {
   wallMountable?: boolean
 }
 
-/** A single placeable product parsed out of the IKEA search API. */
+/** A single placeable product, scraped from one of the retailers. */
 export interface CatalogItem {
-  /** IKEA global article number, unique. */
+  /**
+   * Article number, unique across every retailer loaded.
+   *
+   * Nothing in this string says where it came from, and share links carry it
+   * alone, so a collision would resolve a shared plan to a different shop's
+   * product. IKEA's are eight digits and Dunelm's ten, which is what keeps them
+   * apart today, and `test/dunelm-catalog.test.ts` asserts it rather than
+   * trusting it.
+   */
   id: string
+  /** Which shop this came from, e.g. "IKEA". Absent in catalogues scraped
+   * before there was more than one, and read as IKEA when missing. */
+  retailer?: string
   /** System this item was scraped under, e.g. "BESTA". */
   system: string
   /** The system as IKEA spells it, e.g. "BESTÅ". Drawn on the item in the room. */
@@ -88,6 +99,8 @@ export interface SystemSummary {
   blurb: string
   count: number
   wallMountable: boolean
+  /** As on `CatalogItem`, and read as IKEA when missing. */
+  retailer?: string
 }
 
 /** An item placed in the room. */

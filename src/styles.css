@@ -260,6 +260,14 @@ kbd {
   gap: 4px;
 }
 
+/* The shop row sits above the categories and is separated from them, so the
+   two rows of chips do not read as one wrapped list of unrelated filters. */
+.chips--shops {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
 .chip {
   border: 1px solid var(--line);
   background: var(--panel-2);

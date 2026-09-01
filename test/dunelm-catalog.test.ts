@@ -10,7 +10,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Catalog } from '../src/lib/types.ts'
+import { decodeLayout, encodeLayout } from '../src/lib/layout.ts'
+import type { Catalog, Layout } from '../src/lib/types.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (name: string) =>
@@ -18,6 +19,20 @@ const read = (name: string) =>
 
 const dunelm = read('catalog-dunelm.json')
 const ikea = read('catalog.json')
+
+// Serve each file by name, so `loadCatalog` really merges two shops here rather
+// than being handed the same one twice. `sanitizeLayout` drops any article it
+// cannot find, so the share round trip below is only meaningful once the merged
+// catalogue is loaded.
+const FILES: Record<string, unknown> = { 'catalog.json': ikea, 'catalog-dunelm.json': dunelm }
+;(globalThis as unknown as { fetch: unknown }).fetch = async (url: string) => {
+  const name = Object.keys(FILES).find((f) => url.endsWith(f))
+  if (!name) return { ok: false, status: 404 }
+  return { ok: true, status: 200, json: async () => FILES[name] }
+}
+
+const { loadCatalog, retailers } = await import('../src/lib/catalog.ts')
+const merged = await loadCatalog('catalog.json')
 
 let failures = 0
 function check(label: string, ok: boolean, detail = '') {
@@ -29,6 +44,25 @@ const items = dunelm.items
 const show = (list: unknown[], n = 3) => JSON.stringify(list.slice(0, n))
 
 check(`catalogue has products (${items.length})`, items.length > 200, `${items.length}`)
+
+// --- The merged catalogue ---------------------------------------------------
+
+check(
+  `both shops load together (${merged.items.length} products)`,
+  merged.items.length === ikea.items.length + items.length,
+  `${merged.items.length} vs ${ikea.items.length} + ${items.length}`,
+)
+check('both shops are offered', retailers().join() === 'IKEA,Dunelm', retailers().join())
+check(
+  'every Dunelm product is labelled Dunelm',
+  merged.items.filter((i) => i.retailer === 'Dunelm').length === items.length,
+  '',
+)
+check(
+  'IKEA products are labelled even though the file predates retailers',
+  merged.items.filter((i) => i.retailer === 'IKEA').length === ikea.items.length,
+  '',
+)
 
 // --- Identity ---------------------------------------------------------------
 
@@ -45,6 +79,25 @@ check('every id survives the share encoding', unpackable.length === 0, show(unpa
 const ikeaIds = new Set(ikea.items.map((i) => i.id))
 const clashes = items.filter((i) => ikeaIds.has(i.id))
 check('no id collides with an IKEA article number', clashes.length === 0, show(clashes.map((i) => i.id)))
+
+// A link is the only place an id travels on its own, so the check above is only
+// worth as much as this one: the whole catalogue through a real share link.
+const room = { width: 400, depth: 300, height: 240, wallColor: '#eee', floorColor: '#ddd' }
+const sample = items.filter((_, n) => n % 97 === 0)
+const layout: Layout = {
+  version: 1,
+  name: 'every-97th',
+  room,
+  items: sample.map((i, n) => ({ uid: `u${n}`, itemId: i.id, x: n, y: 0, z: 0, rotation: 0 as const })),
+  savedAt: new Date().toISOString(),
+}
+const roundTripped = decodeLayout(encodeLayout(layout))
+check(
+  `ids survive a real share link (${sample.length} sampled)`,
+  roundTripped !== null &&
+    roundTripped.layout.items.map((i) => i.itemId).join() === sample.map((i) => i.id).join(),
+  roundTripped ? show(roundTripped.layout.items.map((i) => i.itemId)) : 'decoded to nothing',
+)
 
 // --- Sizes ------------------------------------------------------------------
 

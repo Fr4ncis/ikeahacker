@@ -178,9 +178,20 @@ page is several products, one per mattress size, so ids for those are derived as
 `id * 10 + n`, which keeps them numeric for the share encoding and inside an
 eleven-digit space Dunelm's own ten-digit ids never occupy.
 
-Nothing loads that file yet. Merging a second source into the app is the open question,
-and the sharp edge is that an id carries no retailer, so an eight-digit id from a new
-source would silently resolve to an IKEA article in a shared plan.
+`loadCatalog` fetches `catalog.json` first and then every file in `EXTRA_CATALOGUES`,
+stamping each with its retailer and merging. Items and system ids are deduplicated rather
+than concatenated, so loading the same file twice is a no-op rather than a catalogue full
+of pairs. A missing or broken extra file costs those products and not the app, for the
+same reason the shapes are optional: a fork may not have run that scrape. `retailer` is
+optional on `CatalogItem` and read as IKEA when absent, so a catalogue scraped before
+there was more than one shop still loads. The group key leads with the retailer, so two
+shops selling the same-sounding bookcase keep their own listing, price and link.
+
+The sharp edge is that an id carries no retailer and a share link carries the id alone.
+IKEA's are eight digits and Dunelm's ten, which is the only thing keeping them apart, so
+`test/dunelm-catalog.test.ts` asserts both that no id collides and that the whole
+catalogue survives a real `encodeLayout`/`decodeLayout` round trip. A third source with
+eight-digit ids needs a prefix and a share-format version, not a hope.
 
 ## Conventions
 

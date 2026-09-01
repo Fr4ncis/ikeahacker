@@ -26,6 +26,7 @@ let bounds: SizeBounds = { width: [0, 0], depth: [0, 0], height: [0, 0] }
  */
 export interface ProductGroup {
   key: string
+  retailer: string
   system: string
   systemLabel: string
   name: string
@@ -48,7 +49,10 @@ export interface SizeBounds {
   height: [number, number]
 }
 
-const groupKey = (i: CatalogItem) => `${i.system}|${i.name}|${i.type}|${i.width}x${i.depth}x${i.height}`
+// The retailer leads the key, so two shops that happen to sell a "Malmo 80cm
+// Bookcase" of the same size keep their own listing, price and link.
+const groupKey = (i: CatalogItem) =>
+  `${i.retailer ?? DEFAULT_RETAILER}|${i.system}|${i.name}|${i.type}|${i.width}x${i.depth}x${i.height}`
 
 function buildGroups(items: CatalogItem[]): ProductGroup[] {
   const map = new Map<string, CatalogItem[]>()
@@ -66,12 +70,15 @@ function buildGroups(items: CatalogItem[]): ProductGroup[] {
       (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || a.finish.localeCompare(b.finish),
     )
     const head = variants[0]
+    const retailer = head.retailer ?? DEFAULT_RETAILER
     const prices = variants.map((v) => v.price).filter((p): p is number => p !== null)
-    const shared = `${head.system} ${head.systemLabel} ${head.name} ${head.type} ` +
+    // The retailer is in the haystack so "dunelm sofa" narrows to one shop.
+    const shared = `${retailer} ${head.system} ${head.systemLabel} ${head.name} ${head.type} ` +
       `${head.width}x${head.depth}x${head.height} ${head.width} ${head.depth} ${head.height}`
 
     return {
       key,
+      retailer,
       system: head.system,
       systemLabel: head.systemLabel,
       name: head.name,
@@ -102,20 +109,85 @@ function measureBounds(items: CatalogItem[]): SizeBounds {
   return { width: span((i) => i.width), depth: span((i) => i.depth), height: span((i) => i.height) }
 }
 
+/** Every retailer has its own file; this is the one that must be there. */
+export const DEFAULT_RETAILER = 'IKEA'
+
+/**
+ * The other catalogues loaded beside `catalog.json`, keyed by the retailer they
+ * are labelled with. Each is scraped by its own pass and written to its own
+ * file, because the nightly re-scrape rewrites `catalog.json` from IKEA alone
+ * and would otherwise delete the rest once a night.
+ */
+const EXTRA_CATALOGUES: Record<string, string> = {
+  Dunelm: 'catalog-dunelm.json',
+}
+
+/** Stamps a retailer onto a catalogue scraped before there was more than one. */
+function tag(catalog: Catalog, retailer: string): Catalog {
+  return {
+    ...catalog,
+    items: catalog.items.map((i) => (i.retailer ? i : { ...i, retailer })),
+    systems: catalog.systems.map((s) => (s.retailer ? s : { ...s, retailer })),
+  }
+}
+
 export async function loadCatalog(url = `${import.meta.env.BASE_URL}catalog.json`): Promise<Catalog> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Could not load the product catalogue (HTTP ${res.status}). Run "npm run scrape".`)
-  const loaded = (await res.json()) as Catalog
-  if (!Array.isArray(loaded.items) || !loaded.items.length) {
+  const first = (await res.json()) as Catalog
+  if (!Array.isArray(first.items) || !first.items.length) {
     throw new Error('The product catalogue is empty. Run "npm run scrape".')
   }
-  data = loaded
-  byId = new Map(loaded.items.map((i) => [i.id, i]))
-  groups = buildGroups(loaded.items)
+
+  const loaded = tag(first, DEFAULT_RETAILER)
+  const items = [...loaded.items]
+  const systems = [...loaded.systems]
+  // Ids and system ids are deduplicated rather than concatenated, so loading
+  // the same file twice is a no-op instead of a catalogue full of pairs.
+  const seenItems = new Set(items.map((i) => i.id))
+  const seenSystems = new Set(systems.map((s) => s.id))
+
+  for (const [retailer, file] of Object.entries(EXTRA_CATALOGUES)) {
+    const extra = await loadExtra(url.replace(/catalog\.json.*$/, file), retailer)
+    for (const item of extra?.items ?? []) {
+      if (seenItems.has(item.id)) continue
+      seenItems.add(item.id)
+      items.push(item)
+    }
+    for (const system of extra?.systems ?? []) {
+      if (seenSystems.has(system.id)) continue
+      seenSystems.add(system.id)
+      systems.push(system)
+    }
+  }
+
+  data = { ...loaded, items, systems }
+  byId = new Map(items.map((i) => [i.id, i]))
+  groups = buildGroups(items)
   groupOfItem = new Map(groups.flatMap((g) => g.variants.map((v) => [v.id, g] as const)))
-  bounds = measureBounds(loaded.items)
+  bounds = measureBounds(items)
   shapeOfItem = await loadShapes(url.replace(/catalog\.json.*$/, 'shapes.json'), groups)
-  return loaded
+  return data
+}
+
+/**
+ * Loads one of the other retailers' catalogues.
+ *
+ * Optional for the same reason the shapes are: a fork may not have run that
+ * scrape, and the planner is perfectly usable with one shop in it. A missing or
+ * broken file costs those products, not the app.
+ */
+async function loadExtra(url: string, retailer: string): Promise<Catalog | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const loaded = (await res.json()) as Catalog
+    if (!Array.isArray(loaded.items) || !loaded.items.length) return null
+    return tag(loaded, retailer)
+  } catch {
+    // One shop short is a supported state, so this is not worth reporting.
+    return null
+  }
 }
 
 /**
@@ -199,8 +271,20 @@ export function categories(): SystemCategory[] {
   return CATEGORY_ORDER.filter((c) => systems.some((s) => s.category === c))
 }
 
+/**
+ * The shops present, the one that must be there first. A fork with only
+ * `catalog.json` gets a single entry, and the sidebar hides the picker rather
+ * than offering a choice of one.
+ */
+export function retailers(): string[] {
+  const found = new Set(getCatalog().items.map((i) => i.retailer ?? DEFAULT_RETAILER))
+  found.delete(DEFAULT_RETAILER)
+  return [DEFAULT_RETAILER, ...[...found].sort()]
+}
+
 export interface Filters {
   query: string
+  retailer: string | 'all'
   category: SystemCategory | 'all'
   system: string | 'all'
   /** Selected widths in whole cm. Empty means any. */
@@ -211,6 +295,7 @@ export interface Filters {
 
 export const EMPTY_FILTERS: Filters = {
   query: '',
+  retailer: 'all',
   category: 'all',
   system: 'all',
   widths: [],
@@ -260,6 +345,7 @@ export function clearSizes(filters: Filters): Filters {
 
 /** Does a product pass every filter except, optionally, one dimension? */
 function matches(group: ProductGroup, filters: Filters, terms: string[], ignore?: Dimension): number | null {
+  if (filters.retailer !== 'all' && group.retailer !== filters.retailer) return null
   if (filters.category !== 'all' && group.category !== filters.category) return null
   if (filters.system !== 'all' && group.system !== filters.system) return null
 
@@ -438,7 +524,11 @@ export const bandLabel = (band: SizeBand) => (band.lo === band.hi ? `${band.lo}`
 
 /** Is anything at all narrowing the catalogue down? */
 export const hasAnyFilter = (f: Filters) =>
-  f.query.trim() !== '' || f.category !== 'all' || f.system !== 'all' || hasSizeFilter(f)
+  f.query.trim() !== '' ||
+  f.retailer !== 'all' ||
+  f.category !== 'all' ||
+  f.system !== 'all' ||
+  hasSizeFilter(f)
 
 export function formatPrice(price: number | null, currency: string): string {
   if (price === null) return '—'
