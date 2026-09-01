@@ -125,9 +125,15 @@ export function Toolbar({ onNotice }: { onNotice: (notice: LoadNotice) => void }
       onNotice({ text: `Link copied — it opens this exact layout, all ${count}.${note}`, tone: note ? 'warning' : 'info' })
     } catch {
       // Clipboard access can be refused, e.g. without a user gesture. Putting
-      // the plan in the address bar still lets the link be copied by hand.
-      window.history.replaceState(null, '', url)
-      onNotice({ text: 'Link is in the address bar — copy it from there.', tone: 'warning' })
+      // the plan in the address bar still lets the link be copied by hand --
+      // but only on the web, since the desktop app builds links for a site it
+      // is not itself served from and the browser refuses to write them.
+      if (url.startsWith(window.location.origin)) {
+        window.history.replaceState(null, '', url)
+        onNotice({ text: 'Link is in the address bar — copy it from there.', tone: 'warning' })
+      } else {
+        onNotice({ text: 'Could not copy the link. Use Download JSON to move this plan.', tone: 'warning' })
+      }
     }
   }
 

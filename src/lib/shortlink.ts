@@ -9,7 +9,7 @@
  * The two forms coexist by design. A fork deployed without an API still
  * shares; a long link made before the API existed still opens.
  */
-import { SHARE_PARAM } from './layout'
+import { linkBase, SHARE_PARAM } from './layout'
 
 const API = import.meta.env.VITE_API_URL?.replace(/\/+$/, '') ?? ''
 
@@ -63,7 +63,7 @@ export function shortIdFromUrl(search = window.location.search): string | null {
   return id && /^[a-z2-9]{4,32}$/.test(id) ? id : null
 }
 
-export function shortUrl(id: string, base = window.location.href): string {
+export function shortUrl(id: string, base = linkBase()): string {
   const url = new URL(base)
   url.hash = ''
   url.search = `?${SHORT_PARAM}=${id}`

@@ -208,8 +208,23 @@ export function decodeLayout(text: string): LoadedLayout | null {
   } satisfies Layout)
 }
 
+/**
+ * Where a shared link should point.
+ *
+ * On the web that is the page you are looking at. In the desktop app the page
+ * is served from the app's own scheme, and `app://ikeahacker/...` opens on
+ * nobody else's machine, so links are built against the published site given
+ * at build time instead. A desktop build with none configured falls back to
+ * the current URL, which at least round-trips through Import.
+ */
+export function linkBase(): string {
+  if (/^https?:$/.test(window.location.protocol)) return window.location.href
+  return import.meta.env.VITE_PUBLIC_URL || window.location.href
+}
+
+
 /** The full link to a plan, for copying to the clipboard. */
-export function shareUrl(layout: Layout, base = window.location.href): string {
+export function shareUrl(layout: Layout, base = linkBase()): string {
   const url = new URL(base)
   url.hash = `${SHARE_PARAM}=${encodeLayout(layout)}`
   return url.toString()

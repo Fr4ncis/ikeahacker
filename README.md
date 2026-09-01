@@ -23,6 +23,9 @@ npm run scrape
 shapes each product type is drawn as, the layout serialisation that share links
 depend on, the catalogue grouping and filtering, and the animation transform.
 
+There is a desktop build too, if you would rather have it in the Dock than in a
+tab: see [Desktop app](#desktop-app).
+
 ## What it does
 
 **Catalogue.** Every product is scraped from ikea.com with its real width,
@@ -293,6 +296,49 @@ Anything arriving from a link, a file or browser storage goes through the same
 validation. Malformed input is rejected outright; input that is merely unknown,
 such as a retired article, is dropped and counted. Positions are clamped rather
 than trusted, and a colour that is not a hex triple is ignored.
+
+## Desktop app
+
+The same planner, in a window, for macOS, Windows and Linux. It is the web
+build with an Electron shell around it, so there is one app rather than two
+codebases.
+
+```bash
+cd desktop
+npm install
+npm start          # build and run it
+npm run smoke      # boot it hidden and check it actually works
+npm run dist       # installers into desktop/release
+```
+
+`npm run dist` builds the planner first, so there is no separate step. Tagging
+a `v*` release, or running the **Desktop app** workflow by hand, builds all
+three platforms in CI and attaches the installers to the release.
+
+Nothing is signed. macOS will refuse the first launch until you right-click the
+app and choose Open, and Windows SmartScreen will want More info → Run anyway.
+Signing needs an Apple Developer account and a Windows certificate.
+
+Two things are arranged differently from the web build, both in
+`desktop/main.ts`:
+
+**The app is served over its own `app://` scheme**, not from `file://`.
+Chromium blocks `fetch` on file URLs and the catalogue is fetched rather than
+bundled into the JavaScript, so the planner would open with no products at all.
+A registered scheme also gives the page a stable origin, which is what
+`localStorage` keys on: saved layouts survive an update because the origin
+never changes.
+
+**The catalogue refreshes from the published site** in the background. A binary
+otherwise freezes the products at the moment it was built, while the web
+version picks up the nightly re-scrape. The download is held to the same guard
+the re-scrape workflow applies — at least 500 products, and at least 70% of
+what is already there — and it is used from the next launch, so a slow or
+broken network never delays or breaks a start.
+
+Sharing still produces web links. A link to `app://ikeahacker` would open on
+nobody else's machine, so `VITE_PUBLIC_URL` is baked in at build time and Share
+builds links against the published site instead of the page it is running on.
 
 ## The plan service (optional)
 

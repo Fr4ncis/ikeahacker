@@ -1,0 +1,65 @@
+name: Desktop app
+
+# Not on every push: three runners producing 90 MB installers is a lot of
+# minutes for a change that usually only touches the web build. Tag a release,
+# or run it by hand from the Actions tab.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - run: npm ci
+      # The planner's own suites. The shell is only a window around them, so a
+      # broken planner should stop the build before it packages anything.
+      - run: npm test
+
+      - run: npm ci
+        working-directory: desktop
+      # Builds the planner with the desktop settings, then the shell, then packages.
+      - run: npm run dist
+        working-directory: desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ikeahacker-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.exe
+            desktop/release/*.AppImage
+
+      # Nothing here is signed, so macOS and Windows will both warn the first
+      # time. Signing needs an Apple Developer account and a Windows
+      # certificate; without them the installers still work, they just have to
+      # be opened past the warning.
+      - name: Attach the installers to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(desktop/release/*.dmg desktop/release/*.exe desktop/release/*.AppImage)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::nothing to upload"; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

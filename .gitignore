@@ -9,3 +9,6 @@ worker/node_modules
 worker/.wrangler
 .dev.vars
 .env.local
+desktop/node_modules
+desktop/out
+desktop/release

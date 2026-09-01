@@ -26,10 +26,16 @@ Scraper environment knobs: `PIP_LIMIT=0` skips the slow product-page pass,
 cached under `scraper/.cache` (gitignored), so a second run is nearly free.
 
 The Cloudflare Worker in `worker/` has its own `package.json` and `node_modules`; run
-wrangler commands from inside that directory.
+wrangler commands from inside that directory. So does the Electron shell in `desktop/`:
+`npm start` runs it, `npm run smoke` boots it hidden and asserts the planner really
+loads, `npm run dist` packages installers. `npm run dist` and `npm start` both build the
+planner first, with `VITE_BASE=./` and `VITE_PUBLIC_URL` set from the `publicSite` field
+in `desktop/package.json`. The smoke test is not part of `npm test`, because it needs
+Electron installed.
 
 Build-time env: `VITE_BASE` (GitHub Pages subpath, set by the deploy workflow),
-`VITE_API_URL` (short-link service; unset is a supported configuration).
+`VITE_API_URL` (short-link service; unset is a supported configuration), `VITE_PUBLIC_URL`
+(where Share should point when the page itself is not on the web, i.e. the desktop app).
 
 ## Architecture
 
@@ -70,6 +76,16 @@ corner of an L-shaped room.
 flags) plus `localStorage` persistence under `ikeahacker.autosave` and `ikeahacker.saves`.
 `RoomCanvas` owns transient interaction state (drag kind, animation clocks) in refs and
 drives a rAF loop that stops entirely once nothing is animating.
+
+**The desktop shell is a window, not a fork.** `desktop/main.ts` serves the built `dist`
+over a registered `app://ikeahacker` scheme rather than `file://`, because Chromium
+blocks `fetch` on file URLs and the catalogue is fetched, and because a registered scheme
+gives the page a stable origin so `localStorage` layouts survive an update. Changing the
+scheme or host orphans every saved plan. The shell also refreshes `catalog.json` from the
+published site into `userData`, behind the same guard as the re-scrape workflow, and the
+protocol handler prefers that copy; it takes effect at the next launch. Link building
+goes through `linkBase()` in `src/lib/layout.ts`, which returns the current URL on the
+web and the configured public site off it: a shared `app://` link opens for nobody.
 
 **Untrusted input has one door.** Layouts from a share link, an imported file, or
 `localStorage` all pass through `sanitizeLayout` in `src/lib/layout.ts`. Malformed input

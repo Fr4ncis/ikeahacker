@@ -1,0 +1,57 @@
+{
+  "name": "ikeahacker-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The room planner as a desktop app",
+  "main": "out/main.js",
+  "publicSite": "https://fr4ncis.github.io/ikeahacker/",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "smoke": "npm run build && electron out/smoke.js",
+    "dist": "npm run build && electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3"
+  },
+  "build": {
+    "appId": "com.fr4ncis.ikeahacker",
+    "productName": "IKEA Hacker",
+    "copyright": "Plans rooms with scraped IKEA product data. Not affiliated with IKEA.",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "!out/smoke.*",
+      "package.json",
+      {
+        "from": "../dist",
+        "to": "renderer"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Graphics"
+    }
+  }
+}
