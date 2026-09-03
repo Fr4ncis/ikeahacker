@@ -253,6 +253,18 @@ async function main() {
     if (parts.boxes.length) withBoxes++
   })
 
+  // Same as the shapes: an article the catalogue has retired can never be
+  // looked up again, so it is dropped rather than carried around.
+  const live = new Set(catalog.items.map((i) => i.id))
+  let dropped = 0
+  for (const id of Object.keys(products)) {
+    if (!live.has(id)) {
+      delete products[id]
+      dropped++
+    }
+  }
+  if (dropped) console.log(`dropped ${dropped} for articles no longer in the catalogue`)
+
   await writeFile(PARTS, JSON.stringify({ version: 1, builtAt: new Date().toISOString(), products } satisfies PartsFile))
   const total = Object.keys(products).length
   console.log(`\n${total} products described`)

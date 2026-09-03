@@ -371,14 +371,22 @@ if (!shapeFile) {
   const sized = new Map(products.map((p) => [p.id, p]))
   const built = Object.entries(shapeFile.shapes)
 
+  const stale = built.filter(([id]) => !sized.has(id))
+
   check(
-    `every stored shape belongs to a product in the catalogue (${built.length} shapes)`,
-    built.length > 0 && built.every(([id]) => sized.has(id)),
+    // Not "every": the catalogue is re-scraped nightly and the shapes are
+    // built by hand, so articles retire out from under them. A shape for an
+    // article the catalogue no longer has is unreachable rather than wrong,
+    // since shapes are looked up by walking the catalogue. What would matter
+    // is the file drifting so far it has stopped describing the catalogue.
+    `stored shapes still describe the catalogue (${built.length - stale.length} of ${built.length})`,
+    built.length > 0 && stale.length < built.length * 0.1,
+    `${stale.length} are for retired articles; run \`npm run shapes\` to clear them`,
   )
 
   check(
     'a stored shape stays inside the size IKEA published',
-    built.every(([id, boxes]) => {
+    built.filter(([id]) => sized.has(id)).every(([id, boxes]) => {
       const item = sized.get(id)!
       return boxes.every(
         ([lx0, ly0, lz0, lx1, ly1, lz1]) =>
@@ -411,7 +419,7 @@ if (!shapeFile) {
     // together wrongly -- a swap of depth for height leaves a 202 cm bookcase
     // 39 cm tall, and it passed every other check here while it did so.
     'a stored shape fills the size it was scaled onto',
-    built.every(([id, boxes]) => {
+    built.filter(([id]) => sized.has(id)).every(([id, boxes]) => {
       const item = sized.get(id)!
       const reach = (axis: number) => Math.max(...boxes.map((b) => b[axis]))
       const slack = shapeFile.cell + 1
@@ -421,6 +429,7 @@ if (!shapeFile) {
     }),
     JSON.stringify(
       built
+        .filter(([id]) => sized.has(id))
         .filter(([id, boxes]) => Math.max(...boxes.map((b) => b[5])) < sized.get(id)!.height - shapeFile.cell - 1)
         .slice(0, 3)
         .map(([id]) => `${sized.get(id)!.name} ${sized.get(id)!.type}`),

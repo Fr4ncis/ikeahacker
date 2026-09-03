@@ -175,7 +175,16 @@ if (!built) {
   const known = new Set(catalog.items.map((i) => i.id))
   const entries = Object.entries(built.products)
 
-  check(`every described product is in the catalogue (${entries.length} products)`, entries.length > 0 && entries.every(([id]) => known.has(id)))
+  const stale = entries.filter(([id]) => !known.has(id))
+
+  check(
+    // Not "every", for the same reason as the shapes: the catalogue is
+    // re-scraped nightly and this pass is run by hand, so articles retire out
+    // from under it. An entry for a retired article is unreachable, not wrong.
+    `described products are still in the catalogue (${entries.length - stale.length} of ${entries.length})`,
+    entries.length > 0 && stale.length < entries.length * 0.1,
+    `${stale.length} are for retired articles; run \`npm run parts\` to clear them`,
+  )
 
   check(
     // Linked, never copied: everything here is a URL on ikea.com.

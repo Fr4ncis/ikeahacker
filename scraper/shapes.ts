@@ -155,6 +155,19 @@ async function main() {
     modelled++
   })
 
+  // A shape for an article the catalogue no longer sells is dead weight: the
+  // app looks shapes up by walking the catalogue, so it can never be read
+  // again. The nightly re-scrape retires articles, so this drifts on its own.
+  const live = new Set(catalog.items.map((i) => i.id))
+  let dropped = 0
+  for (const id of Object.keys(shapes)) {
+    if (!live.has(id)) {
+      delete shapes[id]
+      dropped++
+    }
+  }
+  if (dropped) console.log(`dropped ${dropped} shape${dropped === 1 ? '' : 's'} for articles no longer in the catalogue`)
+
   const file: ShapeFile = { version: 1, cell: CELL, builtAt: new Date().toISOString(), shapes }
   await writeFile(SHAPES, JSON.stringify(file))
   const counts = Object.values(shapes).map((b) => b.length)
