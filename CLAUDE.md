@@ -22,6 +22,9 @@ with an explicit `.ts` extension (`allowImportingTsExtensions`); app code import
 
 `npm run test:worker` is separate and is not part of `npm test`.
 
+`npm run parts` is a separate pass over about 1,600 product pages, cached under
+`scraper/.cache/parts`; knobs are `PARTS_LIMIT` and `PARTS_CONCURRENCY`.
+
 `npm run shapes` is a separate pass over about 1,600 model downloads, cached under
 `scraper/.cache`; knobs are `SHAPES_LIMIT`, `SHAPES_CONCURRENCY` and `SHAPES_CELL` (the
 cube size, which invalidates every shape when it changes). It is not part of `npm run
@@ -102,6 +105,16 @@ published site into `userData`, behind the same guard as the re-scrape workflow,
 protocol handler prefers that copy; it takes effect at the next launch. Link building
 goes through `linkBase()` in `src/lib/layout.ts`, which returns the current URL on the
 web and the configured public site off it: a shared `app://` link opens for nobody.
+
+**What a product is made of is fetched lazily and linked, never copied.**
+`scraper/parts.ts` reads three things off a product page -- the instruction sheets, the
+`subProducts` a combination is built from, and the `packaging` block -- into
+`public/parts.json` (1,574 of 1,619 products, 2.6 MB). The PDFs are IKEA's, so only URLs
+are stored, never document content. The file is bigger than the catalogue, so it is not
+on the startup path: `ensureParts()` fetches once on first use and the components
+re-render when it lands, and everything renders nothing until then, which is also what
+happens when the pass was never run. `partsOf` falls back to a product's other colourways,
+which share their boxes and sheets.
 
 **Shapes from IKEA's models beat the archetypes, when there are any.** `npm run shapes`
 (`scraper/shapes.ts`) reads IKEA's glTF per product, voxelises it and stores a dozen-odd

@@ -914,8 +914,122 @@ kbd {
   line-height: 1;
 }
 
-.product-link {
+/* ---------- What a piece is made of ---------- */
+
+.made-of {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.made-of-head {
+  display: grid;
+  grid-template-columns: 12px auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+
+.made-of[data-open='true'] .facet-caret,
+.made-of-head[aria-expanded='true'] .facet-caret {
+  transform: rotate(90deg) translateX(1px);
+}
+
+.made-of-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.made-of-summary {
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.made-of-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.made-of-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.parts li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
   font-size: 12px;
+}
+
+.part-qty {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 20px;
+}
+
+.part-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.part-name em { font-style: normal; color: var(--muted); }
+
+.part-article {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.parts a {
+  flex: none;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.parts a:hover { text-decoration: underline; }
+
+.parts--sheets li { color: var(--muted); }
+
+/* The plan's own weight, under the money. */
+.shopping-haul {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.shopping-haul em { font-style: normal; opacity: 0.75; }
+
+.product-link {  font-size: 12px;
   color: var(--accent);
   text-decoration: none;
 }

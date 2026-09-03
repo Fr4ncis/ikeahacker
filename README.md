@@ -130,6 +130,20 @@ headboard and a mattress set into its frame; a bookcase gets two sides, a top
 and bottom, shelves and a panel behind them; and anything IKEA sells on an
 underframe, on feet or on castors stands clear of the floor on them.
 
+**What it is made of.** A selected piece can tell you how it arrives and what
+it is built from: how many flat-packs, what they weigh, how big the largest one
+is, and -- for a combination -- the articles that make it up, with quantities
+and article numbers. Each carries a link to its own assembly instructions on
+ikea.com. The shopping list adds up the packages and the weight for the whole
+plan, which is the thing a price total does not tell you: whether it goes home
+in one trip.
+
+The instruction sheets are linked, never copied. They are IKEA's documents,
+they are revised without notice, and the link is the one the product page
+offers. `npm run parts` builds `public/parts.json`; it is fetched only when
+something first asks for it, since it is larger than the catalogue and is
+reference material rather than something you need to start planning.
+
 **Output.** The shopping list totals up what is in the room at current prices.
 Export the plan as a PNG, the list as CSV, or the layout as JSON.
 

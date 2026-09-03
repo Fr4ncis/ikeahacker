@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { formatPrice, getCatalog, getItem, groupOf, productHost, retailerOf } from '../lib/catalog'
+import { ensureParts, largestBox, looseManuals, manualFor, packageSummary, partsOf, weightOf } from '../lib/parts'
 import { Sound } from '../lib/sound'
 import { usePlanner } from '../state/store'
 import type { PlacedItem } from '../lib/types'
@@ -170,12 +172,113 @@ function SelectedItem({ placed }: { placed: PlacedItem }) {
         </button>
       </div>
 
+      <WhatItIsMadeOf itemId={placed.itemId} />
+
       {cat.productUrl && (
         <a className="product-link" href={cat.productUrl} target="_blank" rel="noreferrer noopener">
           Open on {productHost(cat)} ↗
         </a>
       )}
     </div>
+  )
+}
+
+/**
+ * Pulls the parts file in the first time anything wants it, and re-renders
+ * when it lands. Nothing here blocks: until it arrives these simply say
+ * nothing, which is also what they do when the pass was never run.
+ */
+function useParts() {
+  const [, arrived] = useState(0)
+  useEffect(() => {
+    let live = true
+    void ensureParts().then(() => {
+      if (live) arrived((n) => n + 1)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+}
+
+/**
+ * The boxes it arrives in, the articles it is built from, and the instruction
+ * sheets for each of them.
+ *
+ * Folded away by default. It is reference material -- what you reach for once,
+ * when you are working out whether it fits in the car or which sheet to follow
+ * -- and the panel above it is what you use while you are planning.
+ *
+ * The sheets are linked, not copied. They are IKEA's documents, they are
+ * revised without notice, and the link is the one the product page gives.
+ */
+function WhatItIsMadeOf({ itemId }: { itemId: string }) {
+  const [open, setOpen] = useState(false)
+  useParts()
+  const info = partsOf(itemId)
+  if (!info || (!info.boxes.length && !info.parts.length && !info.manuals.length)) return null
+
+  const biggest = largestBox(info.boxes)
+  const loose = looseManuals(info.parts, info.manuals)
+  const summary = packageSummary(info.boxes) || `${info.parts.length} articles`
+
+  return (
+    <section className="made-of">
+      <button className="made-of-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="facet-caret" aria-hidden="true" />
+        <span className="made-of-title">In the box</span>
+        <span className="made-of-summary">{summary}</span>
+      </button>
+
+      {open && (
+        <div className="made-of-body">
+          {biggest && (
+            <p className="made-of-note">
+              Largest package {biggest.length} × {biggest.width} × {biggest.height} cm
+              {biggest.weight ? `, ${biggest.weight.toFixed(1)} kg` : ''}
+            </p>
+          )}
+
+          {info.parts.length > 0 && (
+            <ul className="parts">
+              {info.parts.map((part) => {
+                const sheet = manualFor(part, info.manuals)
+                return (
+                  <li key={part.id}>
+                    <span className="part-qty">{part.quantity}×</span>
+                    <span className="part-name">
+                      {part.name} <em>{part.type}</em>
+                      <span className="part-article">{part.article}</span>
+                    </span>
+                    {sheet && (
+                      <a href={sheet.url} target="_blank" rel="noreferrer noopener" title={`Instructions for ${sheet.label}`}>
+                        PDF ↗
+                      </a>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
+          {loose.length > 0 && (
+            <p className="made-of-note">{info.parts.length ? 'Also published' : 'Instructions'}</p>
+          )}
+          {loose.length > 0 && (
+            <ul className="parts parts--sheets">
+              {loose.map((sheet) => (
+                <li key={sheet.url}>
+                  <span className="part-name">{sheet.label}</span>
+                  <a href={sheet.url} target="_blank" rel="noreferrer noopener">
+                    {sheet.kind === 'manual' ? 'Manual ↗' : 'PDF ↗'}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -219,6 +322,44 @@ function ShoppingList() {
         <span>Total{missingPrice ? ' (some prices unlisted)' : ''}</span>
         <strong>{formatPrice(total, catalog.currency)}</strong>
       </div>
+      <Haul rows={rows} />
+    </div>
+  )
+}
+
+/**
+ * What the plan weighs and how many boxes it is.
+ *
+ * The thing a shopping list does not tell you is whether it goes home in one
+ * trip. Counted from the packages rather than the furniture, since a 202 cm
+ * bookcase travels as a 207 cm box, and only over the products the parts pass
+ * has reached -- it says so when it has not reached them all, rather than
+ * quietly under-counting.
+ */
+function Haul({ rows }: { rows: { cat: { id: string }; qty: number }[] }) {
+  useParts()
+  let boxes = 0
+  let weight = 0
+  let unknown = 0
+
+  for (const { cat, qty } of rows) {
+    const info = partsOf(cat.id)
+    if (!info?.boxes.length) {
+      unknown += qty
+      continue
+    }
+    boxes += info.boxes.length * qty
+    weight += weightOf(info.boxes) * qty
+  }
+  if (!boxes) return null
+
+  return (
+    <div className="shopping-haul">
+      <span>
+        {boxes} package{boxes === 1 ? '' : 's'}
+        {weight > 0 ? `, ${weight < 10 ? weight.toFixed(1) : Math.round(weight)} kg` : ''}
+      </span>
+      {unknown > 0 && <em>{unknown} not counted</em>}
     </div>
   )
 }

@@ -12,3 +12,4 @@ worker/.wrangler
 desktop/node_modules
 desktop/out
 desktop/release
+.claude
